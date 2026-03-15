@@ -11,8 +11,8 @@ public class AiController {
 
     private final LlmService llmService;
 
-    @GetMapping("/ask")
-    public String ask(@RequestParam String q) {
-        return llmService.ask(q);
+    @GetMapping("/chat")
+    public String chat(@RequestParam String message) {
+        return llmService.ask(message);
     }
 }

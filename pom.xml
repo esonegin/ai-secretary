@@ -63,12 +63,6 @@
 			<scope>runtime</scope>
 		</dependency>
 
-		<!-- SPRING AI -->
-		<dependency>
-			<groupId>org.springframework.ai</groupId>
-			<artifactId>spring-ai-starter-model-openai</artifactId>
-		</dependency>
-
 		<!-- LOMBOK -->
 		<dependency>
 			<groupId>org.projectlombok</groupId>

@@ -1,17 +1,15 @@
-package ai.personal.secretary.service;
+package ai.personal.secretary.client;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
 import java.util.Map;
 
-@Service
-@RequiredArgsConstructor
-public class ChatService {
+@Component
+public class OpenRouterClient {
 
     @Value("${OPENROUTER_API_KEY}")
     private String apiKey;
@@ -31,7 +29,10 @@ public class ChatService {
         Map<String, Object> body = Map.of(
                 "model", "openai/gpt-4o-mini",
                 "messages", List.of(
-                        Map.of("role", "user", "content", message)
+                        Map.of(
+                                "role", "user",
+                                "content", message
+                        )
                 )
         );
 

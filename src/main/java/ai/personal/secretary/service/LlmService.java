@@ -1,21 +1,16 @@
 package ai.personal.secretary.service;
 
-import org.springframework.ai.chat.client.ChatClient;
+import ai.personal.secretary.client.OpenRouterClient;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 @Service
+@RequiredArgsConstructor
 public class LlmService {
 
-    private final ChatClient chatClient;
+    private final OpenRouterClient openRouterClient;
 
-    public LlmService(ChatClient.Builder builder) {
-        this.chatClient = builder.build();
-    }
-
-    public String ask(String prompt) {
-        return chatClient.prompt()
-                .user(prompt)
-                .call()
-                .content();
+    public String ask(String message) {
+        return openRouterClient.chat(message);
     }
 }
