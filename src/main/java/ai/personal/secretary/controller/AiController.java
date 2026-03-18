@@ -12,7 +12,10 @@ public class AiController {
     private final LlmService llmService;
 
     @GetMapping("/chat")
-    public String chat(@RequestParam String message) {
-        return llmService.ask(message);
+    public String chat(
+            @RequestParam(required = false) Long conversationId,
+            @RequestParam String message
+    ) {
+        return llmService.ask(conversationId, message);
     }
 }

@@ -1,4 +1,4 @@
-package ai.personal.secretary.entity;
+package ai.personal.secretary.model;
 
 import jakarta.persistence.*;
 import lombok.*;

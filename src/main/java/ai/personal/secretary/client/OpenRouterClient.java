@@ -16,7 +16,7 @@ public class OpenRouterClient {
 
     private final RestTemplate restTemplate = new RestTemplate();
 
-    public String chat(String message) {
+    public String chat(List<Map<String, String>> messages) {
 
         String url = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -28,12 +28,7 @@ public class OpenRouterClient {
 
         Map<String, Object> body = Map.of(
                 "model", "openai/gpt-4o-mini",
-                "messages", List.of(
-                        Map.of(
-                                "role", "user",
-                                "content", message
-                        )
-                )
+                "messages", messages
         );
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
@@ -45,5 +40,37 @@ public class OpenRouterClient {
         Map msg = (Map) choice.get("message");
 
         return msg.get("content").toString();
+    }
+
+    public float[] embedding(String text) {
+
+        String url = "https://openrouter.ai/api/v1/embeddings";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(apiKey);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        Map<String, Object> body = Map.of(
+                "model", "text-embedding-3-small",
+                "input", text
+        );
+
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+
+        Map response = restTemplate.postForObject(url, entity, Map.class);
+
+        List data = (List) response.get("data");
+
+        Map embedding = (Map) data.get(0);
+
+        List<Double> vector = (List<Double>) embedding.get("embedding");
+
+        float[] result = new float[vector.size()];
+
+        for (int i = 0; i < vector.size(); i++) {
+            result[i] = vector.get(i).floatValue();
+        }
+
+        return result;
     }
 }

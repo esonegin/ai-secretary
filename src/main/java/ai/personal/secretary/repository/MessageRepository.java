@@ -1,6 +1,6 @@
 package ai.personal.secretary.repository;
 
-import ai.personal.secretary.entity.Message;
+import ai.personal.secretary.model.Message;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

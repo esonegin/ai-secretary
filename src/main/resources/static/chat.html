@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>AI Secretary</title>
+</head>
+
+<body>
+
+<h2>AI Secretary</h2>
+
+<input id="msg" placeholder="Message"/>
+<button onclick="send()">Send</button>
+
+<pre id="chat"></pre>
+
+<script>
+
+let conversationId = null
+
+async function send(){
+
+ const message = document.getElementById("msg").value
+
+ const url = conversationId
+   ? `/ai/chat?conversationId=${conversationId}&message=${message}`
+   : `/ai/chat?message=${message}`
+
+ const res = await fetch(url)
+
+ const text = await res.text()
+
+ document.getElementById("chat").innerText +=
+  "\nUser: " + message + "\nAI: " + text + "\n"
+
+}
+
+</script>
+
+</body>
+</html>
