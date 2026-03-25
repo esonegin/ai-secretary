@@ -1,13 +1,9 @@
 package ai.personal.secretary.controller;
 
-/**
- * @author onegines
- * @date 16.03.2026
- */
-
-import ai.personal.secretary.dto.AddKnowledgeRequest;
-import ai.personal.secretary.model.Knowledge;
+import ai.personal.secretary.dto.KnowledgeRequest;
+import ai.personal.secretary.dto.KnowledgeResponse;
 import ai.personal.secretary.service.KnowledgeService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,13 +17,12 @@ public class KnowledgeController {
     private final KnowledgeService knowledgeService;
 
     @PostMapping
-    public Knowledge add(@RequestBody AddKnowledgeRequest request) {
-        return knowledgeService.add(request.getContent());
+    public KnowledgeResponse addKnowledge(@RequestBody @Valid KnowledgeRequest request) {
+        return knowledgeService.save(request.content());
     }
 
     @GetMapping
-    public List<Knowledge> list() {
+    public List<KnowledgeResponse> getAllKnowledge() {
         return knowledgeService.findAll();
     }
-
 }

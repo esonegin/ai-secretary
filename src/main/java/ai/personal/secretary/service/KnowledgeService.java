@@ -1,10 +1,6 @@
 package ai.personal.secretary.service;
 
-/**
- * @author onegines
- * @date 16.03.2026
- */
-
+import ai.personal.secretary.dto.KnowledgeResponse;
 import ai.personal.secretary.model.Knowledge;
 import ai.personal.secretary.repository.KnowledgeRepository;
 import lombok.RequiredArgsConstructor;
@@ -12,26 +8,32 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-
 @Service
 @RequiredArgsConstructor
 public class KnowledgeService {
 
     private final KnowledgeRepository knowledgeRepository;
-    private final EmbeddingService embeddingService;
 
-    public Knowledge add(String content) {
+    public KnowledgeResponse save(String content) {
+        Knowledge knowledge = new Knowledge();
+        knowledge.setContent(content);
+        knowledge.setEmbedding(null); // пока отключено
 
-        Knowledge k = new Knowledge();
+        Knowledge saved = knowledgeRepository.save(knowledge);
 
-        k.setContent(content);
-        k.setEmbedding(embeddingService.embed(content));
-
-        return knowledgeRepository.save(k);
+        return new KnowledgeResponse(
+                saved.getId(),
+                saved.getContent()
+        );
     }
 
-    public List<Knowledge> findAll() {
-        return knowledgeRepository.findAll();
+    public List<KnowledgeResponse> findAll() {
+        return knowledgeRepository.findAll()
+                .stream()
+                .map(k -> new KnowledgeResponse(
+                        k.getId(),
+                        k.getContent()
+                ))
+                .toList();
     }
-
 }

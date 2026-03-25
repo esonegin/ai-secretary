@@ -1,20 +1,22 @@
 package ai.personal.secretary.model;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 
-@Data
 @Entity
+@Table(name = "knowledge")
+@Getter
+@Setter
 public class Knowledge {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(columnDefinition = "TEXT")
+    @Column(columnDefinition = "TEXT", nullable = false)
     private String content;
 
-    @Column(columnDefinition = "vector(1536)")
+    @Transient
     private float[] embedding;
-
 }

@@ -3,15 +3,17 @@ package ai.personal.secretary.service;
 import ai.personal.secretary.client.OpenRouterClient;
 import ai.personal.secretary.model.Conversation;
 import ai.personal.secretary.model.Message;
+import ai.personal.secretary.model.UserProfile;
 import ai.personal.secretary.repository.ConversationRepository;
 import ai.personal.secretary.repository.MessageRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -21,80 +23,95 @@ public class LlmService {
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
     private final RagService ragService;
+    private final UserProfileService userProfileService;
 
-    public String chat(Long conversationId, String userMessage) {
-
-        Conversation conversation;
-
-        if (conversationId == null) {
-
-            conversation = new Conversation();
-            conversation.setCreatedAt(
-                    LocalDateTime.ofInstant(Instant.now(), ZoneId.systemDefault())
-            );
-
-            conversation = conversationRepository.save(conversation);
-
-        } else {
-
-            conversation = conversationRepository
-                    .findById(conversationId)
-                    .orElseThrow();
-        }
+    public String ask(Long conversationId, String userMessage) {
+        Conversation conversation = getOrCreateConversation(conversationId);
 
         List<Message> history =
                 messageRepository.findByConversationIdOrderByCreatedAt(conversation.getId());
 
+        String ragContext = ragService.buildContext(userMessage);
+        UserProfile profile = userProfileService.getOrCreate();
+
         List<Map<String, String>> messages = new ArrayList<>();
+        messages.add(message("system", buildSystemPrompt(profile, ragContext)));
 
-        for (Message msg : history) {
-
-            Map<String, String> m = new HashMap<>();
-            m.put("role", msg.getRole());
-            m.put("content", msg.getContent());
-
-            messages.add(m);
+        for (Message historyMessage : history) {
+            messages.add(message(historyMessage.getRole(), historyMessage.getContent()));
         }
 
-        String context = ragService.buildContext(userMessage);
+        messages.add(message("user", userMessage));
 
-        if (!context.isEmpty()) {
+        saveMessage(conversation, "user", userMessage);
 
-            Map<String, String> system = new HashMap<>();
-            system.put("role", "system");
-            system.put("content", context);
+        String assistantAnswer = openRouterClient.chat(messages);
 
-            messages.add(system);
-        }
+        saveMessage(conversation, "assistant", assistantAnswer);
 
-        Map<String, String> user = new HashMap<>();
-        user.put("role", "user");
-        user.put("content", userMessage);
-
-        messages.add(user);
-
-        String answer = openRouterClient.chat(messages);
-
-        Message userMsg = new Message();
-        userMsg.setConversation(conversation);
-        userMsg.setRole("user");
-        userMsg.setContent(userMessage);
-        userMsg.setCreatedAt(LocalDateTime.now());
-
-        messageRepository.save(userMsg);
-
-        Message assistantMsg = new Message();
-        assistantMsg.setConversation(conversation);
-        assistantMsg.setRole("assistant");
-        assistantMsg.setContent(answer);
-        assistantMsg.setCreatedAt(LocalDateTime.now());
-
-        messageRepository.save(assistantMsg);
-
-        return answer;
+        return assistantAnswer;
     }
 
-    public String ask(Long conversationId, String message) {
-        return chat(conversationId, message);
+    private Conversation getOrCreateConversation(Long conversationId) {
+        if (conversationId != null) {
+            return conversationRepository.findById(conversationId)
+                    .orElseGet(this::createConversation);
+        }
+        return createConversation();
+    }
+
+    private Conversation createConversation() {
+        Conversation conversation = new Conversation();
+        conversation.setCreatedAt(Instant.now());
+        return conversationRepository.save(conversation);
+    }
+
+    private void saveMessage(Conversation conversation, String role, String content) {
+        Message message = new Message();
+        message.setConversation(conversation);
+        message.setRole(role);
+        message.setContent(content);
+        message.setCreatedAt(Instant.now());
+        messageRepository.save(message);
+    }
+
+    private Map<String, String> message(String role, String content) {
+        Map<String, String> map = new LinkedHashMap<>();
+        map.put("role", role);
+        map.put("content", content);
+        return map;
+    }
+
+    private String buildSystemPrompt(UserProfile profile, String ragContext) {
+        return """
+                Ты — персональный AI-ассистент пользователя.
+
+                Правила ответа:
+                - отвечай на русском языке, если пользователь не попросил иначе
+                - отвечай кратко, практично и структурировано
+                - не выдумывай факты
+                - если данных недостаточно, прямо так и скажи
+                - учитывай профиль пользователя и контекст из базы знаний
+                - давай рекомендации, которые можно применить на практике
+
+                Профиль пользователя:
+                Цели: %s
+                Питание: %s
+                Образ жизни: %s
+                Дополнительно: %s
+
+                Контекст из базы знаний:
+                %s
+                """.formatted(
+                safe(profile.getGoals()),
+                safe(profile.getNutrition()),
+                safe(profile.getLifestyle()),
+                safe(profile.getNotes()),
+                safe(ragContext)
+        );
+    }
+
+    private String safe(String value) {
+        return value == null || value.isBlank() ? "не указано" : value;
     }
 }

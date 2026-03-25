@@ -3,6 +3,7 @@ package ai.personal.secretary.model;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
@@ -19,4 +20,6 @@ public class Conversation {
 
     private LocalDateTime createdAt;
 
+    public void setCreatedAt(Instant now) {
+    }
 }
