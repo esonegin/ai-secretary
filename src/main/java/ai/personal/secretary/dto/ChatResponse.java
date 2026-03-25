@@ -1,31 +1,39 @@
 package ai.personal.secretary.dto;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+/**
+ * Ответ коуча — содержит текст и информацию о том,
+ * какой домен обработал запрос (полезно для отладки и UI).
+ */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class ChatResponse {
 
-    private Long conversationId;
-    private String answer;
+    /** Slug домена который ответил, или "meta" для мета-коуча. */
+    private String domainSlug;
 
-    public ChatResponse() {
-    }
+    /** Человекочитаемое название домена: "Спорт", "Йога", "Мета-коуч". */
+    private String domainName;
 
-    public ChatResponse(Long conversationId, String answer) {
-        this.conversationId = conversationId;
-        this.answer = answer;
-    }
+    /** Текст ответа коуча. */
+    private String message;
 
-    public Long getConversationId() {
-        return conversationId;
-    }
+    private LocalDateTime timestamp;
 
-    public void setConversationId(Long conversationId) {
-        this.conversationId = conversationId;
-    }
-
-    public String getAnswer() {
-        return answer;
-    }
-
-    public void setAnswer(String answer) {
-        this.answer = answer;
+    public static ChatResponse of(String domainSlug, String domainName, String message) {
+        return ChatResponse.builder()
+                .domainSlug(domainSlug)
+                .domainName(domainName)
+                .message(message)
+                .timestamp(LocalDateTime.now())
+                .build();
     }
 }

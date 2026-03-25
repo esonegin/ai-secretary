@@ -1,16 +1,54 @@
 spring:
-  config:
-    import: optional:file:.env[.properties]
+  application:
+    name: ai-coach
+
   datasource:
     url: jdbc:postgresql://localhost:5432/ai_secretary
     username: postgres
     password: postgres
+    driver-class-name: org.postgresql.Driver
 
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
-    open-in-view: false
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  ai:
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY}
+      chat:
+        options:
+          model: claude-sonnet-4-6
+          max-tokens: 8192
+          temperature: 0.7
+
+    vectorstore:
+      pgvector:
+        index-type: hnsw
+        distance-type: cosine_distance
+        dimensions: 1536
+        initialize-schema: true
+        # schema-name: public   # раскомментируй если нужна другая схема
+
+logging:
+  level:
+    ai.personal: DEBUG
+    org.springframework.ai: INFO
 
 server:
   port: 8080
+  servlet:
+    context-path: /api
+
+coach:
+  # Сколько сообщений истории передавать в контекст каждого домен-коуча
+  max-history-messages: 30
+  # Сколько дней анализировать для еженедельного отчёта
+  weekly-report-days: 7
+  # Расписание утреннего check-in (cron): каждый день в 09:00
+  checkin-morning-cron: "0 0 9 * * *"
+  # Расписание вечернего check-in: каждый день в 21:00
+  checkin-evening-cron: "0 0 21 * * *"

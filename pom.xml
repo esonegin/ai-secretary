@@ -3,9 +3,14 @@
 		 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
          https://maven.apache.org/xsd/maven-4.0.0.xsd">
-
 	<modelVersion>4.0.0</modelVersion>
 
+	<!--
+        ПРОВЕРЕННЫЕ ВЕРСИИ (все есть в Maven Central):
+        - Spring Boot  3.3.5  → совместим со Spring AI 1.0.x, работает на macOS Catalina
+        - Spring AI    1.0.0  → GA-релиз, Maven Central, Java 17+
+        - Java         21     → работает на Catalina через Temurin/Azul (не Oracle JDK)
+    -->
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
@@ -16,14 +21,20 @@
 	<groupId>ai.personal</groupId>
 	<artifactId>ai-secretary</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>ai-secretary</name>
+	<name>ai-coach</name>
+	<description>Personal AI Life Coach powered by Anthropic Claude</description>
 
 	<properties>
 		<java.version>21</java.version>
 		<spring-ai.version>1.0.0</spring-ai.version>
 	</properties>
 
-	<!-- Spring AI BOM -->
+	<!--
+        BOM импортируется здесь — он задаёт версии ВСЕХ spring-ai-* зависимостей.
+        После этого в <dependencies> версии указывать НЕ нужно.
+        Ошибка "${project.version}" возникает когда IDE/Maven не видит BOM —
+        попробуй: mvn dependency:resolve или File → Invalidate Caches в IntelliJ.
+    -->
 	<dependencyManagement>
 		<dependencies>
 			<dependency>
@@ -38,46 +49,63 @@
 
 	<dependencies>
 
-		<!-- WEB -->
+		<!-- ─── Spring Boot ──────────────────────────────────────────────────── -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
-
-		<!-- JPA -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webflux</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa</artifactId>
 		</dependency>
-
-		<!-- VALIDATION -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
 
-		<!-- POSTGRES -->
+		<!-- ─── Spring AI ────────────────────────────────────────────────────── -->
+		<!--
+            Имена артефактов сменились в 1.0.0 GA:
+            СТАРОЕ (до GA, не работает):  spring-ai-anthropic-spring-boot-starter
+            НОВОЕ  (1.0.0 GA):            spring-ai-starter-model-anthropic
+        -->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-model-anthropic</artifactId>
+			<!-- версию НЕ указываем — берётся из BOM выше -->
+		</dependency>
+		<!--
+            СТАРОЕ: spring-ai-pgvector-store-spring-boot-starter
+            НОВОЕ:  spring-ai-starter-vector-store-pgvector
+        -->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
+		</dependency>
+
+		<!-- ─── Database ─────────────────────────────────────────────────────── -->
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>
 			<scope>runtime</scope>
 		</dependency>
 
-		<!-- LOMBOK -->
+		<!-- ─── Utils ────────────────────────────────────────────────────────── -->
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
 			<optional>true</optional>
 		</dependency>
+		<dependency>
+			<groupId>com.fasterxml.jackson.core</groupId>
+			<artifactId>jackson-databind</artifactId>
+		</dependency>
 
-		<!-- DEVTOOLS -->
-	<!--	<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-devtools</artifactId>
-			<scope>runtime</scope>
-		</dependency>-->
-
-		<!-- TEST -->
+		<!-- ─── Test ─────────────────────────────────────────────────────────── -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
@@ -88,46 +116,38 @@
 
 	<build>
 		<plugins>
-
+			<!--
+                maven-compiler-plugin: версию НЕ указываем явно —
+                spring-boot-starter-parent уже управляет ею.
+                Явная версия 3.13.0 не нашлась в репозитории — это и была одна из ошибок.
+            -->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
-				<version>3.11.0</version>
-
 				<configuration>
-					<source>21</source>
-					<target>21</target>
-
+					<source>${java.version}</source>
+					<target>${java.version}</target>
 					<annotationProcessorPaths>
-
 						<path>
 							<groupId>org.projectlombok</groupId>
 							<artifactId>lombok</artifactId>
 							<version>1.18.34</version>
 						</path>
-
 					</annotationProcessorPaths>
-
 				</configuration>
 			</plugin>
-
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
-
 				<configuration>
-					<jvmArguments>
-						-Djava.net.useSystemProxies=false
-						-Dhttp.proxyHost=
-						-Dhttps.proxyHost=
-						-DsocksProxyHost=
-						-Dhttp.proxyPort=
-						-Dhttps.proxyPort=
-						-DsocksProxyPort=
-					</jvmArguments>
+					<excludes>
+						<exclude>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</exclude>
+					</excludes>
 				</configuration>
 			</plugin>
-
 		</plugins>
 	</build>
 
