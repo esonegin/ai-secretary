@@ -59,12 +59,67 @@ public class CoachService {
                 .orElse(0);
 
         String sessionId = sessionId(userId, domain);
-        // ChatMessage.MessageRole — зафиксированное имя, без вариантов
         save(user, domain, sessionId, ChatMessage.MessageRole.USER,      userMessage, null);
         save(user, domain, sessionId, ChatMessage.MessageRole.ASSISTANT, reply,       tokens);
 
+        // Автосохранение активности — только если есть конкретный домен
+        if (domain != null) {
+            extractAndSaveActivity(user, domain, userMessage);
+        }
+
         log.debug("[{}] tokens={}", domain != null ? domain.getSlug() : "meta", tokens);
         return reply;
+    }
+
+    // ── Автоизвлечение активности ─────────────────────────────────────────────
+
+    /**
+     * Анализирует сообщение пользователя и сохраняет активность если она там есть.
+     *
+     * Использует отдельный лёгкий вызов к модели — classification prompt.
+     * Ответ строго структурирован: "НЕТ" или "ДА|краткое описание".
+     * Не блокирует основной ответ — ошибки тихо логируются.
+     */
+    private void extractAndSaveActivity(UserProfile user, Domain domain, String userMessage) {
+        try {
+            String extractPrompt = String.format("""
+                Проанализируй сообщение и определи — есть ли в нём конкретная активность
+                в домене "%s" которую стоит записать в дневник (тренировка, приём пищи,
+                прочитанные страницы, просмотренный фильм, практика и т.д.).
+                
+                Правила:
+                - Если активность есть — ответь строго: ДА|краткое описание (1 строка, до 100 символов)
+                - Если активности нет (вопрос, рассуждение, планы) — ответь строго: НЕТ
+                - Никаких других слов кроме формата выше
+                
+                Домен: %s
+                Сообщение: "%s"
+                """, domain.getName(), domain.getName(), userMessage);
+
+            String result = ChatClient.builder(chatModel)
+                    .build()
+                    .prompt(extractPrompt)
+                    .call()
+                    .content()
+                    .trim();
+
+            if (result.startsWith("ДА|")) {
+                String summary = result.substring(3).trim();
+                if (!summary.isBlank()) {
+                    activityLogRepository.save(ActivityLog.builder()
+                            .user(user)
+                            .domain(domain)
+                            .loggedAt(LocalDateTime.now())
+                            .summary(summary)
+                            .build());
+                    log.info("Auto-saved activity [{}]: {}", domain.getSlug(), summary);
+                }
+            }
+
+        } catch (Exception e) {
+            // Автосохранение некритично — не ломаем основной флоу
+            log.debug("Activity extraction skipped: {}", e.getMessage());
+        }
     }
 
     // ── Системный промпт ──────────────────────────────────────────────────────
@@ -127,7 +182,7 @@ public class CoachService {
     private List<Message> buildHistory(Long userId, Domain domain) {
         Long domainId = domain != null ? domain.getId() : null;
         var dbMessages = chatMessageRepository.findLastByUserAndDomain(userId, domainId, maxHistory);
-        Collections.reverse(dbMessages); // DESC → ASC
+        Collections.reverse(dbMessages);
 
         List<Message> messages = new ArrayList<>();
         for (var msg : dbMessages) {
