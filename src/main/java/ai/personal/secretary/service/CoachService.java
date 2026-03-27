@@ -4,7 +4,7 @@ import ai.personal.secretary.model.*;
 import ai.personal.secretary.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.anthropic.AnthropicChatModel;
+import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class CoachService {
 
-    private final AnthropicChatModel chatModel;
+    private final OpenAiChatModel chatModel;
     private final ChatMessageRepository chatMessageRepository;
     private final DomainGoalRepository goalRepository;
     private final ActivityLogRepository activityLogRepository;

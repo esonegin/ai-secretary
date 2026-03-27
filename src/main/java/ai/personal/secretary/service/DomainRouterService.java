@@ -4,7 +4,7 @@ import ai.personal.secretary.model.Domain;
 import ai.personal.secretary.repository.DomainRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.anthropic.AnthropicChatModel;
+import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class DomainRouterService {
 
-    private final AnthropicChatModel chatModel;
+    private final OpenAiChatModel chatModel;
     private final DomainRepository domainRepository;
 
     public Optional<Domain> route(Long userId, String message) {
@@ -47,8 +47,8 @@ public class DomainRouterService {
                 .collect(Collectors.joining(", "));
 
         String prompt = String.format(
-            "Домены: %s\nСообщение: \"%s\"\n" +
-            "Ответь ТОЛЬКО slug домена или \"meta\". Никаких объяснений.", list, message);
+                "Домены: %s\nСообщение: \"%s\"\n" +
+                        "Ответь ТОЛЬКО slug домена или \"meta\". Никаких объяснений.", list, message);
 
         try {
             String result = ChatClient.builder(chatModel).build()

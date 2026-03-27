@@ -17,11 +17,11 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
   ai:
-    anthropic:
-      api-key: ${ANTHROPIC_API_KEY}
+    openai:
+      api-key: ${OPENAI_API_KEY}
       chat:
         options:
-          model: claude-sonnet-4-6
+          model: gpt-4o
           max-tokens: 8192
           temperature: 0.7
 
@@ -51,7 +51,7 @@ logging:
     org.springframework.ai: INFO
     org.telegram: INFO
 
-# Твой личный chatId в Telegram (узнать: написать боту /start, посмотреть в логах)
-# или использовать @userinfobot в Telegram
-# Без этого check-in не будут отправляться
+  # Твой личный chatId в Telegram (узнать: написать боту /start, посмотреть в логах)
+  # или использовать @userinfobot в Telegram
+  # Без этого check-in не будут отправляться
   # owner-chat-id уже вложен внутрь telegram.bot:
