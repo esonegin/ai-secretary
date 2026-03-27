@@ -31,24 +31,27 @@ spring:
         distance-type: cosine_distance
         dimensions: 1536
         initialize-schema: true
-        # schema-name: public   # раскомментируй если нужна другая схема
+
+# Telegram Bot — токен получаешь у @BotFather
+telegram:
+  bot:
+    token: ${TELEGRAM_BOT_TOKEN}
+    username: ${TELEGRAM_BOT_USERNAME}
+  owner-chat-id: ${TELEGRAM_OWNER_CHAT_ID:0}
+
+coach:
+  max-history-messages: 20
+  weekly-report-days: 7
+  checkin-morning-cron: "0 0 9 * * *"
+  checkin-evening-cron: "0 0 21 * * *"
 
 logging:
   level:
     ai.personal: DEBUG
     org.springframework.ai: INFO
+    org.telegram: INFO
 
-server:
-  port: 8080
-  servlet:
-    context-path: /api
-
-coach:
-  # Сколько сообщений истории передавать в контекст каждого домен-коуча
-  max-history-messages: 30
-  # Сколько дней анализировать для еженедельного отчёта
-  weekly-report-days: 7
-  # Расписание утреннего check-in (cron): каждый день в 09:00
-  checkin-morning-cron: "0 0 9 * * *"
-  # Расписание вечернего check-in: каждый день в 21:00
-  checkin-evening-cron: "0 0 21 * * *"
+# Твой личный chatId в Telegram (узнать: написать боту /start, посмотреть в логах)
+# или использовать @userinfobot в Telegram
+# Без этого check-in не будут отправляться
+  # owner-chat-id уже вложен внутрь telegram.bot:

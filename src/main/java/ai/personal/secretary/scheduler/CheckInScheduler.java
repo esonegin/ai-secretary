@@ -1,33 +1,27 @@
 package ai.personal.secretary.scheduler;
 
-/**
- * @author onegines
- * @date 25.03.2026
- */
-
-import ai.personal.secretary.model.Domain;
-import ai.personal.secretary.model.UserProfile;
-import ai.personal.secretary.repository.DomainRepository;
+import ai.personal.secretary.bot.CoachBot;
 import ai.personal.secretary.repository.UserProfileRepository;
 import ai.personal.secretary.service.CoachService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.stream.Collectors;
+import java.time.format.TextStyle;
+import java.util.Locale;
 
 /**
- * Планировщик check-in.
+ * Автоматические check-in через Telegram.
  *
- * Утром: мета-коуч спрашивает о планах на день по всем активным доменам.
- * Вечером: мета-коуч спрашивает что было сделано, как прошёл день.
+ * Чтобы check-in работал, нужно указать свой chatId в application.yml:
+ *   telegram.bot.owner-chat-id: 123456789
  *
- * Сейчас пишет в лог — когда добавишь Telegram-бот,
- * замени log.info() на telegramBotService.sendToUser(userId, text).
+ * Найти свой chatId: написать боту /start и посмотреть в логах,
+ * или использовать @userinfobot в Telegram.
  */
 @Component
 @RequiredArgsConstructor
@@ -35,88 +29,79 @@ import java.util.stream.Collectors;
 public class CheckInScheduler {
 
     private final CoachService coachService;
+    private final CoachBot coachBot;
     private final UserProfileRepository userProfileRepository;
-    private final DomainRepository domainRepository;
 
-    /**
-     * Утренний check-in — каждый день в 09:00.
-     * Cron из application.yml: coach.checkin-morning-cron
-     */
+    @Value("${telegram.bot.owner-chat-id:0}")
+    private Long ownerChatId;
+
+    private static final Long USER_ID = 1L;
+
+    /** Утренний check-in: 09:00 каждый день */
     @Scheduled(cron = "${coach.checkin-morning-cron:0 0 9 * * *}")
     public void morningCheckIn() {
-        log.info("Running morning check-in...");
-        UserProfile user = getDefaultUser();
-        if (user == null) return;
+        if (ownerChatId == 0) { log.warn("owner-chat-id не задан, check-in пропущен"); return; }
 
-        List<Domain> domains = domainRepository
-                .findByUserIdAndIsActiveTrueOrderBySortOrderAsc(user.getId());
+        String name = userName();
+        String day = LocalDate.now().getDayOfWeek()
+                .getDisplayName(TextStyle.FULL, new Locale("ru"));
 
-        String domainNames = domains.stream()
-                .map(d -> d.getIcon() != null ? d.getIcon() + " " + d.getName() : d.getName())
-                .collect(Collectors.joining(", "));
+        String prompt = String.format("""
+            Доброе утро! Сегодня %s, %s.
+            Проведи краткий утренний check-in: спроси о планах на день по 2-3 ключевым направлениям.
+            Будь живым и конкретным, не шаблонным. Максимум 4-5 предложений.
+            """, day, name);
 
-        String checkInMessage = """
-            Доброе утро, %s! Новый день начинается.
-            
-            Активные направления: %s
-            
-            Расскажи: что планируешь сегодня? Есть что-то важное или сложное?
-            Я помогу расставить приоритеты и поддержу в течение дня.
-            """.formatted(user.getName(), domainNames);
-
-        // TODO: заменить на отправку в Telegram когда добавишь бота
-        String reply = coachService.chat(user.getId(), null, checkInMessage);
-        log.info("Morning check-in reply:\n{}", reply);
+        String reply = coachService.chat(USER_ID, null, prompt);
+        coachBot.sendToChat(ownerChatId, "☀️ *Доброе утро!*\n\n" + reply);
+        log.info("Morning check-in sent");
     }
 
-    /**
-     * Вечерний check-in — каждый день в 21:00.
-     */
+    /** Вечерний check-in: 21:00 каждый день */
     @Scheduled(cron = "${coach.checkin-evening-cron:0 0 21 * * *}")
     public void eveningCheckIn() {
-        log.info("Running evening check-in...");
-        UserProfile user = getDefaultUser();
-        if (user == null) return;
+        if (ownerChatId == 0) return;
 
-        String today = LocalDateTime.now().format(DateTimeFormatter.ofPattern("d MMMM"));
+        String date = LocalDate.now().format(DateTimeFormatter.ofPattern("d MMMM", new Locale("ru")));
+        String summary = coachService.generateWeeklySummary(USER_ID);
 
-        String checkInMessage = """
-            Добрый вечер! Подводим итоги %s.
-            
-            Как прошёл день? Что удалось сделать из запланированного?
-            Если что-то не получилось — это нормально, расскажи что помешало.
-            """.formatted(today);
+        String prompt = String.format("""
+            Вечерний check-in, %s.
+            Данные по активности за последнее время: %s
+            Спроси как прошёл день, что удалось, что нет. Будь кратким — 3-4 предложения.
+            """, date, summary.length() > 200 ? summary.substring(0, 200) + "..." : summary);
 
-        // TODO: заменить на отправку в Telegram
-        String reply = coachService.chat(user.getId(), null, checkInMessage);
-        log.info("Evening check-in reply:\n{}", reply);
+        String reply = coachService.chat(USER_ID, null, prompt);
+        coachBot.sendToChat(ownerChatId, "🌙 *Добрый вечер!*\n\n" + reply);
+        log.info("Evening check-in sent");
     }
 
-    /**
-     * Еженедельный отчёт — каждое воскресенье в 20:00.
-     */
+    /** Еженедельный отчёт: воскресенье 20:00 */
     @Scheduled(cron = "0 0 20 * * SUN")
     public void weeklyReport() {
-        log.info("Running weekly report...");
-        UserProfile user = getDefaultUser();
-        if (user == null) return;
+        if (ownerChatId == 0) return;
 
-        String summaryData = coachService.generateWeeklySummary(user.getId());
-
-        String reportRequest = """
-            Вот данные об активности за последние 7 дней:
+        String data = coachService.generateWeeklySummary(USER_ID);
+        String prompt = """
+            Сделай еженедельный анализ на основе этих данных:
             
-            %s
+            """ + data + """
             
-            Сделай анализ: что получается хорошо, что провисает, какие паттерны видны.
-            Дай 2-3 конкретных рекомендации на следующую неделю. Говори живо, не по-корпоративному.
-            """.formatted(summaryData);
+            Структура ответа:
+            • Что получилось хорошо
+            • Что провисло и почему (гипотеза)
+            • 2-3 конкретных рекомендации на следующую неделю
+            
+            Говори как живой коуч, не как отчёт. Около 150 слов.
+            """;
 
-        String reply = coachService.chat(user.getId(), null, reportRequest);
-        log.info("Weekly report:\n{}", reply);
+        String reply = coachService.chat(USER_ID, null, prompt);
+        coachBot.sendToChat(ownerChatId, "📊 *Итоги недели*\n\n" + reply);
+        log.info("Weekly report sent");
     }
 
-    private UserProfile getDefaultUser() {
-        return userProfileRepository.findFirstByOrderByIdAsc().orElse(null);
+    private String userName() {
+        return userProfileRepository.findFirstByOrderByIdAsc()
+                .map(u -> u.getName()).orElse("друг");
     }
 }

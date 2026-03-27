@@ -1,154 +1,137 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-		 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
          https://maven.apache.org/xsd/maven-4.0.0.xsd">
-	<modelVersion>4.0.0</modelVersion>
+    <modelVersion>4.0.0</modelVersion>
 
-	<!--
-        ПРОВЕРЕННЫЕ ВЕРСИИ (все есть в Maven Central):
-        - Spring Boot  3.3.5  → совместим со Spring AI 1.0.x, работает на macOS Catalina
-        - Spring AI    1.0.0  → GA-релиз, Maven Central, Java 17+
-        - Java         21     → работает на Catalina через Temurin/Azul (не Oracle JDK)
-    -->
-	<parent>
-		<groupId>org.springframework.boot</groupId>
-		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.3.5</version>
-		<relativePath/>
-	</parent>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <!-- Проверено: существует в Maven Central, совместим с Spring AI 1.0.0 -->
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
 
-	<groupId>ai.personal</groupId>
-	<artifactId>ai-secretary</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
-	<name>ai-coach</name>
-	<description>Personal AI Life Coach powered by Anthropic Claude</description>
+    <groupId>ai.personal</groupId>
+    <artifactId>ai-secretary</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
 
-	<properties>
-		<java.version>21</java.version>
-		<spring-ai.version>1.0.0</spring-ai.version>
-	</properties>
+    <properties>
+        <java.version>21</java.version>
+        <!-- Spring AI 1.0.0 GA — в Maven Central, без доп. репозиториев -->
+        <spring-ai.version>1.0.0</spring-ai.version>
+        <!-- Telegram: 7.10.0 совместима с Spring Boot 3.3.x -->
+        <telegrambots.version>7.10.0</telegrambots.version>
+    </properties>
 
-	<!--
-        BOM импортируется здесь — он задаёт версии ВСЕХ spring-ai-* зависимостей.
-        После этого в <dependencies> версии указывать НЕ нужно.
-        Ошибка "${project.version}" возникает когда IDE/Maven не видит BOM —
-        попробуй: mvn dependency:resolve или File → Invalidate Caches в IntelliJ.
-    -->
-	<dependencyManagement>
-		<dependencies>
-			<dependency>
-				<groupId>org.springframework.ai</groupId>
-				<artifactId>spring-ai-bom</artifactId>
-				<version>${spring-ai.version}</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-		</dependencies>
-	</dependencyManagement>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
-	<dependencies>
+    <dependencies>
 
-		<!-- ─── Spring Boot ──────────────────────────────────────────────────── -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-web</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-webflux</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-data-jpa</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-validation</artifactId>
-		</dependency>
+        <!-- ── Spring Boot ─────────────────────────────────────────────── -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
 
-		<!-- ─── Spring AI ────────────────────────────────────────────────────── -->
-		<!--
-            Имена артефактов сменились в 1.0.0 GA:
-            СТАРОЕ (до GA, не работает):  spring-ai-anthropic-spring-boot-starter
-            НОВОЕ  (1.0.0 GA):            spring-ai-starter-model-anthropic
-        -->
-		<dependency>
-			<groupId>org.springframework.ai</groupId>
-			<artifactId>spring-ai-starter-model-anthropic</artifactId>
-			<!-- версию НЕ указываем — берётся из BOM выше -->
-		</dependency>
-		<!--
-            СТАРОЕ: spring-ai-pgvector-store-spring-boot-starter
-            НОВОЕ:  spring-ai-starter-vector-store-pgvector
-        -->
-		<dependency>
-			<groupId>org.springframework.ai</groupId>
-			<artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
-		</dependency>
+        <!-- ── Spring AI — новые имена артефактов с версии 1.0.0 GA ───── -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-anthropic</artifactId>
+            <!-- версия берётся из BOM выше, не указываем явно -->
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
+        </dependency>
 
-		<!-- ─── Database ─────────────────────────────────────────────────────── -->
-		<dependency>
-			<groupId>org.postgresql</groupId>
-			<artifactId>postgresql</artifactId>
-			<scope>runtime</scope>
-		</dependency>
+        <!-- ── Telegram Bot API ─────────────────────────────────────────
+             7.x = новая архитектура (SpringLongPollingBot вместо устаревшего
+             TelegramLongPollingBot из 6.x). Совместима с Spring Boot 3.3+.
+             9.x требует Spring Boot 3.4+ — не используем. -->
+        <dependency>
+            <groupId>org.telegram</groupId>
+            <artifactId>telegrambots-springboot-longpolling-starter</artifactId>
+            <version>${telegrambots.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.telegram</groupId>
+            <artifactId>telegrambots-client</artifactId>
+            <version>${telegrambots.version}</version>
+        </dependency>
 
-		<!-- ─── Utils ────────────────────────────────────────────────────────── -->
-		<dependency>
-			<groupId>org.projectlombok</groupId>
-			<artifactId>lombok</artifactId>
-			<optional>true</optional>
-		</dependency>
-		<dependency>
-			<groupId>com.fasterxml.jackson.core</groupId>
-			<artifactId>jackson-databind</artifactId>
-		</dependency>
+        <!-- ── Database ────────────────────────────────────────────────── -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
-		<!-- ─── Test ─────────────────────────────────────────────────────────── -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-test</artifactId>
-			<scope>test</scope>
-		</dependency>
+        <!-- ── Utils ───────────────────────────────────────────────────── -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
 
-	</dependencies>
+        <!-- ── Test ────────────────────────────────────────────────────── -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 
-	<build>
-		<plugins>
-			<!--
-                maven-compiler-plugin: версию НЕ указываем явно —
-                spring-boot-starter-parent уже управляет ею.
-                Явная версия 3.13.0 не нашлась в репозитории — это и была одна из ошибок.
-            -->
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-compiler-plugin</artifactId>
-				<configuration>
-					<source>${java.version}</source>
-					<target>${java.version}</target>
-					<annotationProcessorPaths>
-						<path>
-							<groupId>org.projectlombok</groupId>
-							<artifactId>lombok</artifactId>
-							<version>1.18.34</version>
-						</path>
-					</annotationProcessorPaths>
-				</configuration>
-			</plugin>
-			<plugin>
-				<groupId>org.springframework.boot</groupId>
-				<artifactId>spring-boot-maven-plugin</artifactId>
-				<configuration>
-					<excludes>
-						<exclude>
-							<groupId>org.projectlombok</groupId>
-							<artifactId>lombok</artifactId>
-						</exclude>
-					</excludes>
-				</configuration>
-			</plugin>
-		</plugins>
-	</build>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <!-- Версию не указываем — Spring Boot parent управляет -->
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>1.18.34</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 
 </project>
