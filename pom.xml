@@ -59,10 +59,10 @@
             <artifactId>spring-ai-starter-model-openai</artifactId>
             <!-- версия берётся из BOM выше, не указываем явно -->
         </dependency>
-        <dependency>
+   <!--     <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
-        </dependency>
+        </dependency>-->
 
         <!-- ── Telegram Bot API ─────────────────────────────────────────
              7.x = новая архитектура (SpringLongPollingBot вместо устаревшего

@@ -32,10 +32,10 @@ public class CheckInScheduler {
     private final CoachBot coachBot;
     private final UserProfileRepository userProfileRepository;
 
-    @Value("${telegram.bot.owner-chat-id:0}")
+    @Value("${coach.owner-chat-id:0}")
     private Long ownerChatId;
 
-    private static final Long USER_ID = 1L;
+    private static final Long USER_ID = 2L;
 
     /** Утренний check-in: 09:00 каждый день */
     @Scheduled(cron = "${coach.checkin-morning-cron:0 0 9 * * *}")

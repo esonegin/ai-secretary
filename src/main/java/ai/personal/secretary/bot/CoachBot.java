@@ -49,7 +49,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     // chatId → ждём ввод активности для slug
     private final Map<Long, String> pendingActivity = new ConcurrentHashMap<>();
 
-    private static final Long USER_ID = 1L;
+    private static final Long USER_ID = 2L;
 
     public CoachBot(
             @Value("${telegram.bot.token}") String botToken,

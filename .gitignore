@@ -37,3 +37,4 @@ target/
 *.log
 .idea
 *.iml
+start.shstart.sh
