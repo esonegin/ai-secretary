@@ -8,6 +8,8 @@ import ai.personal.secretary.service.ActivityService;
 import ai.personal.secretary.service.CoachService;
 import ai.personal.secretary.service.DomainRouterService;
 import ai.personal.secretary.service.DomainService;
+import ai.personal.secretary.service.PublishService;
+import ai.personal.secretary.service.PublishService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -43,6 +45,10 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     private final ActivityService activityService;
     private final DomainRepository domainRepository;
     private final UserProfileRepository userProfileRepository;
+    private final PublishService publishService;
+
+    @Value("${telegram.bot.channel-id:0}")
+    private String channelId;
 
     // chatId → выбранный slug домена (null = авто-роутинг)
     private final Map<Long, String> userDomainState = new ConcurrentHashMap<>();
@@ -55,6 +61,12 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
 
     // chatId → текущий шаг заполнения профиля
     private final Map<Long, String> profileStep = new ConcurrentHashMap<>();
+
+    // chatId → тип публикации ожидающей контент ("книга", "фильм" и т.д.)
+    private final Map<Long, String> pendingPublish = new ConcurrentHashMap<>();
+
+    // chatId → черновик поста ожидающий подтверждения публикации
+    private final Map<Long, String> pendingPost = new ConcurrentHashMap<>();
 
     private static final Long USER_ID = 2L;
 
@@ -71,7 +83,8 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             DomainService domainService,
             ActivityService activityService,
             DomainRepository domainRepository,
-            UserProfileRepository userProfileRepository) {
+            UserProfileRepository userProfileRepository,
+            PublishService publishService) {
 
         this.botToken = botToken;
         this.telegramClient = new OkHttpTelegramClient(botToken);
@@ -81,6 +94,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         this.activityService = activityService;
         this.domainRepository = domainRepository;
         this.userProfileRepository = userProfileRepository;
+        this.publishService = publishService;
     }
 
     @Override
@@ -114,6 +128,18 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             return;
         }
 
+        // Ожидаем контент для публикации
+        if (pendingPublish.containsKey(chatId)) {
+            handlePublishInput(chatId, text);
+            return;
+        }
+
+        // Ожидаем описание для публикации
+        if (pendingPost.containsKey(chatId) && pendingPost.get(chatId).startsWith("input:")) {
+            handlePublishInput(chatId, text);
+            return;
+        }
+
         // Логирование активности
         if (pendingActivity.containsKey(chatId)) {
             logActivityFromInput(chatId, text);
@@ -134,6 +160,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         switch (cmd) {
             case "/start"   -> onStart(chatId);
             case "/profile" -> onProfileStart(chatId);
+            case "/publish" -> onPublish(chatId);
             case "/domains" -> onDomains(chatId);
             case "/free"    -> onFree(chatId);
             case "/goals"   -> onGoals(chatId);
@@ -141,6 +168,76 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             case "/summary" -> onSummary(chatId);
             case "/help"    -> onHelp(chatId);
             default         -> handleChat(chatId, command);
+        }
+    }
+
+    // ─── Публикация в канал ───────────────────────────────────────────────────
+
+    private void onPublish(long chatId) {
+        if ("0".equals(channelId)) {
+            send(chatId, "❌ Канал не настроен. Добавь `TELEGRAM_CHANNEL_ID` в start.sh");
+            return;
+        }
+
+        pendingPost.put(chatId, "input:null");
+
+        sendWithKeyboard(chatId, "Что хочешь опубликовать? Выбери формат:",
+                InlineKeyboardMarkup.builder().keyboard(List.of(
+                        new InlineKeyboardRow(
+                                InlineKeyboardButton.builder().text("📚 Книга").callbackData("publish:reading").build(),
+                                InlineKeyboardButton.builder().text("🎬 Фильм").callbackData("publish:cinema").build()
+                        ),
+                        new InlineKeyboardRow(
+                                InlineKeyboardButton.builder().text("🎵 Музыка").callbackData("publish:music").build(),
+                                InlineKeyboardButton.builder().text("💭 Рефлексия").callbackData("publish:free").build()
+                        )
+                )).build());
+    }
+
+    private void handlePublishInput(long chatId, String text) {
+        String state = pendingPost.get(chatId);
+        // state = "input:domainSlug"
+        String domainSlug = state.substring(6); // после "input:"
+        if ("null".equals(domainSlug)) domainSlug = null;
+
+        send(chatId, "⏳ Генерирую пост...");
+        sendTyping(chatId);
+
+        try {
+            String post = publishService.generatePost(domainSlug, text);
+            // Сохраняем черновик
+            pendingPost.put(chatId, "draft:" + post);
+
+            send(chatId, "📝 *Черновик поста:*\n\n" + post);
+            sendWithKeyboard(chatId, "Публикуем в канал?",
+                    InlineKeyboardMarkup.builder().keyboard(List.of(
+                            new InlineKeyboardRow(
+                                    InlineKeyboardButton.builder()
+                                            .text("✅ Опубликовать").callbackData("publish:confirm").build(),
+                                    InlineKeyboardButton.builder()
+                                            .text("✏️ Переписать").callbackData("publish:rewrite").build(),
+                                    InlineKeyboardButton.builder()
+                                            .text("❌ Отмена").callbackData("publish:cancel").build()
+                            )
+                    )).build());
+        } catch (Exception e) {
+            pendingPost.remove(chatId);
+            send(chatId, "❌ Не удалось сгенерировать пост: " + e.getMessage());
+        }
+    }
+
+    private void publishToChannel(long chatId, String post) {
+        try {
+            telegramClient.execute(SendMessage.builder()
+                    .chatId(channelId)
+                    .text(post)
+                    .parseMode("Markdown")
+                    .build());
+            send(chatId, "✅ Опубликовано в канале!");
+            log.info("Post published to channel {}", channelId);
+        } catch (TelegramApiException e) {
+            send(chatId, "❌ Ошибка публикации: " + e.getMessage());
+            log.error("Publish failed: {}", e.getMessage());
         }
     }
 
@@ -340,6 +437,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             /free — авто-режим (определяю тему сам)
             /goals — твои активные цели
             /log <домен> <текст> — записать активность
+            /publish — опубликовать пост в канал
             /summary — итоги недели
             /help — справка
 
@@ -348,6 +446,45 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     }
 
     // ─── Callback ─────────────────────────────────────────────────────────────
+
+    private void handlePublishCallback(long chatId, String data) {
+        switch (data) {
+            case "publish:reading", "publish:cinema", "publish:music" -> {
+                String slug = data.substring(8); // после "publish:"
+                pendingPost.put(chatId, "input:" + slug);
+                String hint = switch (slug) {
+                    case "reading" -> "Напиши о книге: название, автор, что зацепило, главные идеи.";
+                    case "cinema"  -> "Напиши о фильме: название, год, впечатления, что запомнилось.";
+                    case "music"   -> "Напиши о музыке: трек/альбом/артист, атмосфера, почему нравится.";
+                    default        -> "Опиши что хочешь опубликовать.";
+                };
+                send(chatId, "✍️ " + hint);
+            }
+            case "publish:free" -> {
+                pendingPost.put(chatId, "input:null");
+                send(chatId, "✍️ Напиши о чём хочешь поразмышлять или поделиться.");
+            }
+            case "publish:confirm" -> {
+                String state = pendingPost.remove(chatId);
+                if (state != null && state.startsWith("draft:")) {
+                    String post = state.substring(6);
+                    publishToChannel(chatId, post);
+                }
+            }
+            case "publish:rewrite" -> {
+                String state = pendingPost.get(chatId);
+                if (state != null && state.startsWith("draft:")) {
+                    // Возвращаемся к вводу
+                    pendingPost.put(chatId, "input:null");
+                    send(chatId, "✍️ Опиши заново или уточни что изменить:");
+                }
+            }
+            case "publish:cancel" -> {
+                pendingPost.remove(chatId);
+                send(chatId, "Публикация отменена.");
+            }
+        }
+    }
 
     private void handleCallback(Update update) {
         long chatId = update.getCallbackQuery().getMessage().getChatId();
@@ -365,6 +502,8 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
                     send(chatId, icon + "*" + d.getName() + "* — слушаю.");
                 });
             }
+        } else if (data.startsWith("publish:")) {
+            handlePublishCallback(chatId, data);
         } else if (data.startsWith("goal:")) {
             String pending = pendingGoal.remove(chatId);
             if (pending == null) return;
