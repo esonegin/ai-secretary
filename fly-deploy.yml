@@ -1,0 +1,27 @@
+name: Deploy to Fly.io
+
+on:
+  push:
+    branches:
+      - main   # Деплоим при каждом пуше в main
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Чекаут репо
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Устанавливаем flyctl
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # 3. Деплоим
+      # FLY_API_TOKEN берётся из GitHub Secrets (добавишь вручную)
+      - name: Deploy to Fly.io
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

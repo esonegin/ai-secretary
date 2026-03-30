@@ -1,0 +1,30 @@
+# fly.toml — конфигурация Fly.io
+# Документация: https://fly.io/docs/reference/configuration/
+
+app = "ai-secretary-coach"
+primary_region = "ams"  # Amsterdam — ближайший к РФ из доступных
+
+[build]
+# Используем наш Dockerfile
+dockerfile = "Dockerfile"
+
+[env]
+# Не-секретные переменные — можно хранить тут
+TELEGRAM_BOT_USERNAME = "supa_coach_bot"
+SERVER_PORT = "8080"
+
+# Секреты (OPENAI_API_KEY, TELEGRAM_BOT_TOKEN и т.д.)
+# задаются через: fly secrets set KEY=value
+# или через GitHub Actions secrets
+
+[http_service]
+internal_port = 8080
+force_https = true
+auto_stop_machines = false   # НЕ останавливать — бот должен работать 24/7
+auto_start_machines = true
+min_machines_running = 1     # Всегда минимум 1 машина запущена
+
+[[vm]]
+memory = "256mb"   # Минимум для Spring Boot — укладывается в бесплатный лимит
+cpu_kind = "shared"
+cpus = 1

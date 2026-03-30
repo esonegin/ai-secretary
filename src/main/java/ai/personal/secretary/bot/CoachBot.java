@@ -9,7 +9,6 @@ import ai.personal.secretary.service.CoachService;
 import ai.personal.secretary.service.DomainRouterService;
 import ai.personal.secretary.service.DomainService;
 import ai.personal.secretary.service.PublishService;
-import ai.personal.secretary.service.PublishService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -31,6 +30,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Set;
 
 @Component
 @Slf4j
@@ -67,6 +67,22 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
 
     // chatId → черновик поста ожидающий подтверждения публикации
     private final Map<Long, String> pendingPost = new ConcurrentHashMap<>();
+
+    // chatId → ждём ответ о прогрессе по целям (от scheduler)
+    private final Set<Long> pendingGoalCheck = ConcurrentHashMap.newKeySet();
+
+    // chatId → ждём тему для ежедневного поста (от scheduler)
+    private final Set<Long> pendingDailyPost = ConcurrentHashMap.newKeySet();
+
+    /** Вызывается из CheckInScheduler — переводим бота в режим ожидания ответа по целям */
+    public void setPendingGoalCheck(Long chatId) {
+        pendingGoalCheck.add(chatId);
+    }
+
+    /** Вызывается из CheckInScheduler — переводим бота в режим ожидания темы поста */
+    public void setPendingDailyPost(Long chatId) {
+        pendingDailyPost.add(chatId);
+    }
 
     private static final Long USER_ID = 2L;
 
@@ -125,6 +141,18 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         // Приоритет: заполнение профиля
         if (profileStep.containsKey(chatId)) {
             handleProfileInput(chatId, text);
+            return;
+        }
+
+        // Ответ на check по целям (от scheduler)
+        if (pendingGoalCheck.remove(chatId)) {
+            handleGoalCheckResponse(chatId, text);
+            return;
+        }
+
+        // Ответ с темой для ежедневного поста (от scheduler)
+        if (pendingDailyPost.remove(chatId)) {
+            handleDailyPostResponse(chatId, text);
             return;
         }
 
@@ -196,8 +224,41 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
 
     private void handlePublishInput(long chatId, String text) {
         String state = pendingPost.get(chatId);
-        // state = "input:domainSlug"
-        String domainSlug = state.substring(6); // после "input:"
+
+        // Режим обогащения — пользователь добавляет инфо к существующему черновику
+        if (state != null && state.startsWith("enrich:")) {
+            String existingDraft = state.substring(7);
+            send(chatId, "⏳ Обновляю пост...");
+            sendTyping(chatId);
+            try {
+                String enrichedContent = "Существующий черновик:\n" + existingDraft +
+                        "\n\nДополнительная информация от автора: " + text +
+                        "\n\nПерепиши пост, органично включив новую информацию. Сохрани стиль.";
+                String newPost = publishService.generatePost(null, enrichedContent);
+                pendingPost.put(chatId, "draft:" + newPost);
+                send(chatId, "📝 *Обновлённый черновик:*\n\n" + newPost);
+                sendWithKeyboard(chatId, "Публикуем?",
+                        InlineKeyboardMarkup.builder().keyboard(List.of(
+                                new InlineKeyboardRow(
+                                        InlineKeyboardButton.builder()
+                                                .text("✅ Опубликовать").callbackData("publish:confirm").build(),
+                                        InlineKeyboardButton.builder()
+                                                .text("✏️ Переписать").callbackData("publish:rewrite").build(),
+                                        InlineKeyboardButton.builder()
+                                                .text("➕ Добавить инфо").callbackData("publish:enrich").build(),
+                                        InlineKeyboardButton.builder()
+                                                .text("❌ Отмена").callbackData("publish:cancel").build()
+                                )
+                        )).build());
+            } catch (Exception e) {
+                pendingPost.remove(chatId);
+                send(chatId, "❌ Ошибка: " + e.getMessage());
+            }
+            return;
+        }
+
+        // Обычный режим — state = "input:domainSlug"
+        String domainSlug = state != null ? state.substring(6) : null;
         if ("null".equals(domainSlug)) domainSlug = null;
 
         send(chatId, "⏳ Генерирую пост...");
@@ -216,6 +277,8 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
                                             .text("✅ Опубликовать").callbackData("publish:confirm").build(),
                                     InlineKeyboardButton.builder()
                                             .text("✏️ Переписать").callbackData("publish:rewrite").build(),
+                                    InlineKeyboardButton.builder()
+                                            .text("➕ Добавить инфо").callbackData("publish:enrich").build(),
                                     InlineKeyboardButton.builder()
                                             .text("❌ Отмена").callbackData("publish:cancel").build()
                             )
@@ -445,6 +508,76 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             """);
     }
 
+    // ─── Обработка ответов от scheduler ──────────────────────────────────────
+
+    /**
+     * Пользователь ответил на вопрос о прогрессе по целям.
+     * Сохраняем как активность мета-домена и благодарим.
+     */
+    private void handleGoalCheckResponse(long chatId, String text) {
+        sendTyping(chatId);
+
+        // Просим коуча проанализировать ответ о прогрессе
+        String prompt = String.format("""
+            Пользователь ответил на вопрос о прогрессе по целям: "%s"
+            
+            Дай короткий отклик (2-3 предложения): отметь что хорошо, если есть провал — поддержи,
+            не нотации. Потом сохрани это как факт для следующих разговоров.
+            """, text);
+
+        String reply = coachService.chat(USER_ID, null, prompt);
+        send(chatId, reply);
+    }
+
+    /**
+     * Пользователь написал тему или контент для ежедневного поста.
+     * Генерируем черновик с учётом всего контекста и показываем для проверки.
+     */
+    private void handleDailyPostResponse(long chatId, String text) {
+        sendTyping(chatId);
+        send(chatId, "⏳ Готовлю черновик поста...");
+
+        try {
+            // Обогащаем контент контекстом из целей и активностей
+            String goalsContext = coachService.buildGoalProgressContext(USER_ID);
+            String weeklySummary = coachService.generateWeeklySummary(USER_ID);
+
+            String enrichedContent = String.format("""
+                Сообщение пользователя: %s
+                
+                Дополнительный контекст (использовать если нужно):
+                Цели и прогресс: %s
+                Активность за неделю: %s
+                """, text,
+                    goalsContext.isBlank() ? "нет" : goalsContext,
+                    weeklySummary.length() > 300 ? weeklySummary.substring(0, 300) : weeklySummary);
+
+            String post = publishService.generatePost(null, enrichedContent);
+
+            // Сохраняем черновик
+            pendingPost.put(chatId, "draft:" + post);
+
+            send(chatId, "📝 *Черновик поста:*\n\n" + post);
+            sendWithKeyboard(chatId, "Публикуем в канал?",
+                    InlineKeyboardMarkup.builder().keyboard(List.of(
+                            new InlineKeyboardRow(
+                                    InlineKeyboardButton.builder()
+                                            .text("✅ Опубликовать").callbackData("publish:confirm").build(),
+                                    InlineKeyboardButton.builder()
+                                            .text("✏️ Переписать").callbackData("publish:rewrite").build(),
+                                    InlineKeyboardButton.builder()
+                                            .text("➕ Добавить инфо").callbackData("publish:enrich").build(),
+                                    InlineKeyboardButton.builder()
+                                            .text("❌ Отмена").callbackData("publish:cancel").build()
+                            )
+                    )).build());
+        } catch (Exception e) {
+            pendingPost.remove(chatId);
+            send(chatId, "❌ Не удалось создать черновик: " + e.getMessage());
+            log.error("Daily post generation failed: {}", e.getMessage());
+        }
+    }
+
     // ─── Callback ─────────────────────────────────────────────────────────────
 
     private void handlePublishCallback(long chatId, String data) {
@@ -474,9 +607,17 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             case "publish:rewrite" -> {
                 String state = pendingPost.get(chatId);
                 if (state != null && state.startsWith("draft:")) {
-                    // Возвращаемся к вводу
                     pendingPost.put(chatId, "input:null");
                     send(chatId, "✍️ Опиши заново или уточни что изменить:");
+                }
+            }
+            case "publish:enrich" -> {
+                // Просим пользователя добавить больше информации
+                String state = pendingPost.get(chatId);
+                if (state != null && state.startsWith("draft:")) {
+                    pendingPost.put(chatId, "enrich:" + state.substring(6));
+                    send(chatId, "➕ Добавь любую информацию которую хочешь включить в пост — " +
+                            "факт, цитату, личное наблюдение, или напиши \"найди интересный факт по теме\":");
                 }
             }
             case "publish:cancel" -> {

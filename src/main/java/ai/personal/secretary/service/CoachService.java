@@ -232,7 +232,67 @@ public class CoachService {
         return sb.toString();
     }
 
-    // ── Вспомогательные ──────────────────────────────────────────────────────
+    // ── Прогресс по целям ─────────────────────────────────────────────────────
+
+    /**
+     * Генерирует сводку активных целей с последними активностями по каждой.
+     * Используется в вечернем check-in для формирования вопроса о прогрессе.
+     */
+    @Transactional(readOnly = true)
+    public String buildGoalProgressContext(Long userId) {
+        // Берём все активные домены пользователя
+        var sb = new StringBuilder();
+        var from = LocalDateTime.now().minusDays(7);
+        var recentActivity = activityLogRepository.findAllByUserAndPeriod(userId, from);
+
+        // Группируем активности по доменам
+        var actByDomain = recentActivity.stream()
+                .collect(Collectors.groupingBy(a -> a.getDomain().getId()));
+
+        // Для каждого домена с активными целями собираем контекст
+        goalRepository.findAll().stream()
+                .filter(g -> g.getStatus() == DomainGoal.GoalStatus.ACTIVE)
+                .filter(g -> g.getDomain().getUser().getId().equals(userId))
+                .forEach(goal -> {
+                    sb.append("• *").append(goal.getTitle()).append("*");
+                    if (goal.getTargetDate() != null) {
+                        sb.append(" (до ").append(goal.getTargetDate()).append(")");
+                    }
+                    sb.append("\n");
+
+                    // Последние активности по этому домену
+                    var acts = actByDomain.getOrDefault(goal.getDomain().getId(), List.of());
+                    if (!acts.isEmpty()) {
+                        sb.append("  За неделю: ");
+                        acts.stream().limit(2)
+                                .forEach(a -> sb.append(a.getSummary()).append("; "));
+                        sb.append("\n");
+                    } else {
+                        sb.append("  Активностей за неделю нет\n");
+                    }
+                });
+
+        return sb.toString();
+    }
+
+    /**
+     * Генерирует вопрос о прогрессе по конкретной цели для вечернего check-in.
+     */
+    public String generateGoalCheckQuestion(Long userId) {
+        String goalsContext = buildGoalProgressContext(userId);
+        if (goalsContext.isBlank()) return "";
+
+        String prompt = String.format("""
+                Активные цели пользователя с прогрессом за неделю:
+                %s
+                            
+                Задай 1-2 конкретных вопроса о прогрессе сегодня — по самым важным целям.
+                Будь конкретным, не общим. Например: "Удалось позаниматься сегодня?" а не "Как дела с целями?"
+                Максимум 3 предложения. Отвечай на русском.
+                """, goalsContext);
+
+        return chat(userId, null, prompt);
+    }
 
     public List<ChatMessage> getHistory(Long userId, Long domainId) {
         return chatMessageRepository.findAllByUserAndDomainAsc(userId, domainId);
