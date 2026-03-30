@@ -2,7 +2,9 @@ package ai.personal.secretary.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.Period;
 
 @Entity
 @Table(name = "user_profiles")
@@ -15,7 +17,10 @@ public class UserProfile {
     @Column(nullable = false)
     private String name;
 
-    private Integer age;
+    /** Дата рождения — возраст вычисляется динамически через getAge() */
+    @Column(name = "birth_date")
+    private LocalDate birthDate;
+
     private String timezone;
 
     @Column(name = "weight_kg")  private Double weightKg;
@@ -31,4 +36,14 @@ public class UserProfile {
 
     @PrePersist  protected void onCreate() { createdAt = updatedAt = LocalDateTime.now(); }
     @PreUpdate   protected void onUpdate() { updatedAt = LocalDateTime.now(); }
+
+    /**
+     * Текущий возраст в полных годах.
+     * Считается на лету от birthDate — всегда актуален.
+     * Возвращает null если дата рождения не задана.
+     */
+    public Integer getAge() {
+        if (birthDate == null) return null;
+        return Period.between(birthDate, LocalDate.now()).getYears();
+    }
 }

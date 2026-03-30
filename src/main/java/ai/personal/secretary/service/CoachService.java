@@ -30,6 +30,7 @@ public class CoachService {
     private final DomainGoalRepository goalRepository;
     private final ActivityLogRepository activityLogRepository;
     private final UserProfileRepository userProfileRepository;
+    private final MemoryService memoryService;
 
     @Value("${coach.max-history-messages:20}")
     private int maxHistory;
@@ -47,7 +48,7 @@ public class CoachService {
         history.add(new UserMessage(userMessage));
 
         ChatResponse response = ChatClient.builder(chatModel)
-                .defaultSystem(buildSystemPrompt(user, domain))
+                .defaultSystem(buildSystemPrompt(user, domain, userMessage))
                 .build()
                 .prompt(new Prompt(history))
                 .call()
@@ -59,8 +60,13 @@ public class CoachService {
                 .orElse(0);
 
         String sessionId = sessionId(userId, domain);
-        save(user, domain, sessionId, ChatMessage.MessageRole.USER,      userMessage, null);
-        save(user, domain, sessionId, ChatMessage.MessageRole.ASSISTANT, reply,       tokens);
+        save(user, domain, sessionId, ChatMessage.MessageRole.USER, userMessage, null);
+        save(user, domain, sessionId, ChatMessage.MessageRole.ASSISTANT, reply, tokens);
+
+        // Сохраняем в долгосрочную память (асинхронно)
+        memoryService.remember(userId,
+                domain != null ? domain.getSlug() : null,
+                userMessage);
 
         // Автосохранение активности — только если есть конкретный домен
         if (domain != null) {
@@ -75,7 +81,7 @@ public class CoachService {
 
     /**
      * Анализирует сообщение пользователя и сохраняет активность если она там есть.
-     *
+     * <p>
      * Использует отдельный лёгкий вызов к модели — classification prompt.
      * Ответ строго структурирован: "НЕТ" или "ДА|краткое описание".
      * Не блокирует основной ответ — ошибки тихо логируются.
@@ -83,18 +89,18 @@ public class CoachService {
     private void extractAndSaveActivity(UserProfile user, Domain domain, String userMessage) {
         try {
             String extractPrompt = String.format("""
-                Проанализируй сообщение и определи — есть ли в нём конкретная активность
-                в домене "%s" которую стоит записать в дневник (тренировка, приём пищи,
-                прочитанные страницы, просмотренный фильм, практика и т.д.).
-                
-                Правила:
-                - Если активность есть — ответь строго: ДА|краткое описание (1 строка, до 100 символов)
-                - Если активности нет (вопрос, рассуждение, планы) — ответь строго: НЕТ
-                - Никаких других слов кроме формата выше
-                
-                Домен: %s
-                Сообщение: "%s"
-                """, domain.getName(), domain.getName(), userMessage);
+                    Проанализируй сообщение и определи — есть ли в нём конкретная активность
+                    в домене "%s" которую стоит записать в дневник (тренировка, приём пищи,
+                    прочитанные страницы, просмотренный фильм, практика и т.д.).
+                                    
+                    Правила:
+                    - Если активность есть — ответь строго: ДА|краткое описание (1 строка, до 100 символов)
+                    - Если активности нет (вопрос, рассуждение, планы) — ответь строго: НЕТ
+                    - Никаких других слов кроме формата выше
+                                    
+                    Домен: %s
+                    Сообщение: "%s"
+                    """, domain.getName(), domain.getName(), userMessage);
 
             String result = ChatClient.builder(chatModel)
                     .build()
@@ -124,26 +130,39 @@ public class CoachService {
 
     // ── Системный промпт ──────────────────────────────────────────────────────
 
-    private String buildSystemPrompt(UserProfile user, Domain domain) {
+    private String buildSystemPrompt(UserProfile user, Domain domain, String userMessage) {
         var sb = new StringBuilder();
 
         if (domain == null) {
             sb.append("Ты — персональный AI-коуч ").append(user.getName()).append(".\n");
             sb.append("""
-                Видишь общую картину жизни пользователя.
-                Проводишь утренние и вечерние check-in, замечаешь паттерны между доменами,
-                даёшь еженедельную рефлексию. Говори живо, с заботой.
-                Не перегружай вопросами — один-два самых важных.
-                Отвечай на русском языке.
-                """);
+                    Видишь общую картину жизни пользователя.
+                    Проводишь утренние и вечерние check-in, замечаешь паттерны между доменами,
+                    даёшь еженедельную рефлексию. Говори живо, с заботой.
+                    Не перегружай вопросами — один-два самых важных.
+                    Отвечай на русском языке.
+                    """);
         } else {
             sb.append(domain.getSystemPrompt()).append("\n\n");
             appendGoals(sb, domain);
             appendRecentActivity(sb, domain);
         }
 
+        // Долгосрочная память — семантический поиск по прошлым разговорам
+        String memories = memoryService.recall(
+                user.getId(),
+                domain != null ? domain.getSlug() : null,
+                userMessage,
+                4
+        );
+        if (!memories.isBlank()) sb.append(memories);
+
         sb.append("\nПользователь: ").append(user.getName());
         if (user.getAge() != null) sb.append(", ").append(user.getAge()).append(" лет");
+        if (user.getWeightKg() != null) sb.append(", вес ").append(user.getWeightKg()).append(" кг");
+        if (user.getHeightCm() != null) sb.append(", рост ").append(user.getHeightCm()).append(" см");
+        if (user.getActivityLevel() != null) sb.append(", активность: ").append(user.getActivityLevel());
+        if (user.getHealthNotes() != null) sb.append(". Здоровье: ").append(user.getHealthNotes());
         sb.append(".\n");
 
         return sb.toString();
@@ -234,5 +253,61 @@ public class CoachService {
                 .user(user).domain(domain).sessionId(sessionId)
                 .role(role).content(content).tokenCount(tokens)
                 .build());
+    }
+
+    // ── Детектор целей ────────────────────────────────────────────────────────
+
+    /**
+     * Результат детектора: null = цели нет, иначе — текст цели для подтверждения.
+     */
+    public Optional<String> detectGoal(Domain domain, String userMessage) {
+        if (domain == null) return Optional.empty();
+        try {
+            String prompt = String.format("""
+                    Проанализируй сообщение. Есть ли в нём формулировка цели или намерения
+                    которую стоит зафиксировать как цель в направлении "%s"?
+                                    
+                    Цель — это конкретное достижение к которому человек стремится:
+                    "хочу пробежать 10км", "планирую прочитать 20 книг за год",
+                    "хочу освоить стойку на руках к лету".
+                                    
+                    Правила ответа:
+                    - Если цель есть — ответь строго: ДА|чёткая формулировка цели (до 150 символов)
+                    - Если цели нет — ответь строго: НЕТ
+                    - Никаких других слов
+                                    
+                    Домен: %s
+                    Сообщение: "%s"
+                    """, domain.getName(), domain.getName(), userMessage);
+
+            String result = ChatClient.builder(chatModel).build()
+                    .prompt(prompt).call().content().trim();
+
+            if (result.startsWith("ДА|")) {
+                String goalText = result.substring(3).trim();
+                if (!goalText.isBlank()) {
+                    log.debug("Goal detected in [{}]: {}", domain.getSlug(), goalText);
+                    return Optional.of(goalText);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Goal detection skipped: {}", e.getMessage());
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Сохраняет цель домена. Вызывается из CoachBot после подтверждения пользователем.
+     */
+    @Transactional
+    public DomainGoal saveGoal(Long userId, Domain domain, String title) {
+        DomainGoal goal = DomainGoal.builder()
+                .domain(domain)
+                .title(title)
+                .status(DomainGoal.GoalStatus.ACTIVE)
+                .build();
+        DomainGoal saved = goalRepository.save(goal);
+        log.info("Goal saved [{}]: {}", domain.getSlug(), title);
+        return saved;
     }
 }

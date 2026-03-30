@@ -1,6 +1,7 @@
 package ai.personal.secretary.bot;
 
 import ai.personal.secretary.model.Domain;
+import ai.personal.secretary.model.UserProfile;
 import ai.personal.secretary.repository.DomainRepository;
 import ai.personal.secretary.repository.UserProfileRepository;
 import ai.personal.secretary.service.ActivityService;
@@ -23,10 +24,10 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.telegram.telegrambots.meta.generics.TelegramClient;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Component
@@ -49,7 +50,18 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     // chatId → ждём ввод активности для slug
     private final Map<Long, String> pendingActivity = new ConcurrentHashMap<>();
 
+    // chatId → цель ожидающая подтверждения: "domainSlug|goalText"
+    private final Map<Long, String> pendingGoal = new ConcurrentHashMap<>();
+
+    // chatId → текущий шаг заполнения профиля
+    private final Map<Long, String> profileStep = new ConcurrentHashMap<>();
+
     private static final Long USER_ID = 2L;
+
+    // Шаги профиля по порядку
+    private static final List<String> PROFILE_STEPS = List.of(
+            "birth_date", "weight", "height", "activity", "health"
+    );
 
     public CoachBot(
             @Value("${telegram.bot.token}") String botToken,
@@ -96,6 +108,13 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         long chatId = update.getMessage().getChatId();
         String text = update.getMessage().getText().trim();
 
+        // Приоритет: заполнение профиля
+        if (profileStep.containsKey(chatId)) {
+            handleProfileInput(chatId, text);
+            return;
+        }
+
+        // Логирование активности
         if (pendingActivity.containsKey(chatId)) {
             logActivityFromInput(chatId, text);
             return;
@@ -114,6 +133,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         String cmd = command.split(" ")[0].toLowerCase();
         switch (cmd) {
             case "/start"   -> onStart(chatId);
+            case "/profile" -> onProfileStart(chatId);
             case "/domains" -> onDomains(chatId);
             case "/free"    -> onFree(chatId);
             case "/goals"   -> onGoals(chatId);
@@ -126,7 +146,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
 
     private void onStart(long chatId) {
         String name = userProfileRepository.findFirstByOrderByIdAsc()
-                .map(u -> u.getName()).orElse("друг");
+                .map(UserProfile::getName).orElse("друг");
         send(chatId, String.format("""
             Привет, %s! 👋
 
@@ -136,9 +156,108 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             Просто *пиши что угодно* — сам определю тему.
             Или выбери направление: /domains
 
+            /profile — заполнить профиль
             /help — все команды
             """, name));
     }
+
+    // ─── Профиль ──────────────────────────────────────────────────────────────
+
+    private void onProfileStart(long chatId) {
+        UserProfile profile = userProfileRepository.findFirstByOrderByIdAsc().orElse(null);
+
+        String current = "";
+        if (profile != null) {
+            current = String.format("""
+                *Текущий профиль:*
+                • Дата рождения: %s
+                • Возраст: %s
+                • Вес: %s кг
+                • Рост: %s см
+                • Активность: %s
+                • Здоровье: %s
+
+                """,
+                    profile.getBirthDate() != null ? profile.getBirthDate().toString() : "не задана",
+                    profile.getAge() != null ? profile.getAge() + " лет" : "—",
+                    profile.getWeightKg() != null ? profile.getWeightKg() : "—",
+                    profile.getHeightCm() != null ? profile.getHeightCm() : "—",
+                    profile.getActivityLevel() != null ? profile.getActivityLevel() : "—",
+                    profile.getHealthNotes() != null ? profile.getHealthNotes() : "—"
+            );
+        }
+
+        profileStep.put(chatId, "birth_date");
+        send(chatId, current + "Заполняем профиль. Введи дату рождения в формате *ДД.ММ.ГГГГ*:\n_например: 15.03.1990_");
+    }
+
+    private void handleProfileInput(long chatId, String text) {
+        String step = profileStep.get(chatId);
+        UserProfile profile = userProfileRepository.findFirstByOrderByIdAsc()
+                .orElseGet(() -> userProfileRepository.save(
+                        UserProfile.builder().name("Евгений").build()));
+
+        switch (step) {
+            case "birth_date" -> {
+                try {
+                    LocalDate date = LocalDate.parse(text.trim(),
+                            DateTimeFormatter.ofPattern("dd.MM.yyyy"));
+                    profile.setBirthDate(date);
+                    userProfileRepository.save(profile);
+                    profileStep.put(chatId, "weight");
+                    send(chatId, "✅ Дата рождения сохранена. Тебе " + profile.getAge() + " лет.\n\nВведи вес в кг (например: *82*) или /skip:");
+                } catch (DateTimeParseException e) {
+                    send(chatId, "❌ Неверный формат. Введи дату в формате *ДД.ММ.ГГГГ*, например: 15.03.1990");
+                }
+            }
+            case "weight" -> {
+                if (!text.equals("/skip")) {
+                    try {
+                        profile.setWeightKg(Double.parseDouble(text.replace(",", ".")));
+                        userProfileRepository.save(profile);
+                    } catch (NumberFormatException e) {
+                        send(chatId, "❌ Введи число, например: 82");
+                        return;
+                    }
+                }
+                profileStep.put(chatId, "height");
+                send(chatId, "✅ Отлично!\n\nВведи рост в см (например: *180*) или /skip:");
+            }
+            case "height" -> {
+                if (!text.equals("/skip")) {
+                    try {
+                        profile.setHeightCm(Double.parseDouble(text.replace(",", ".")));
+                        userProfileRepository.save(profile);
+                    } catch (NumberFormatException e) {
+                        send(chatId, "❌ Введи число, например: 180");
+                        return;
+                    }
+                }
+                profileStep.put(chatId, "activity");
+                sendWithKeyboard(chatId, "✅ Отлично!\n\nВыбери уровень физической активности:",
+                        InlineKeyboardMarkup.builder().keyboard(List.of(
+                                new InlineKeyboardRow(
+                                        InlineKeyboardButton.builder().text("🪑 Низкий").callbackData("profile:activity:low").build(),
+                                        InlineKeyboardButton.builder().text("🚶 Умеренный").callbackData("profile:activity:moderate").build()
+                                ),
+                                new InlineKeyboardRow(
+                                        InlineKeyboardButton.builder().text("🏃 Активный").callbackData("profile:activity:active").build(),
+                                        InlineKeyboardButton.builder().text("⚡ Очень активный").callbackData("profile:activity:very_active").build()
+                                )
+                        )).build());
+            }
+            case "health" -> {
+                if (!text.equals("/skip")) {
+                    profile.setHealthNotes(text);
+                    userProfileRepository.save(profile);
+                }
+                profileStep.remove(chatId);
+                send(chatId, "✅ Профиль заполнен! Теперь я знаю о тебе больше и буду учитывать это в советах. 🎯");
+            }
+        }
+    }
+
+    // ─── Domains ──────────────────────────────────────────────────────────────
 
     private void onDomains(long chatId) {
         List<Domain> domains = domainService.getAll(USER_ID);
@@ -154,15 +273,12 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             if (row.size() == 2) { rows.add(new InlineKeyboardRow(row)); row = new ArrayList<>(); }
         }
         if (!row.isEmpty()) rows.add(new InlineKeyboardRow(row));
-
         rows.add(new InlineKeyboardRow(
-            InlineKeyboardButton.builder()
-                .text("🧠 Мета-коуч").callbackData("domain:meta").build()
+                InlineKeyboardButton.builder().text("🧠 Мета-коуч").callbackData("domain:meta").build()
         ));
 
         String current = userDomainState.containsKey(chatId)
-                ? "_Сейчас выбрано: " + userDomainState.get(chatId) + "_\n\n" : "";
-
+                ? "_Сейчас: " + userDomainState.get(chatId) + "_\n\n" : "";
         sendWithKeyboard(chatId, current + "Выбери направление:",
                 InlineKeyboardMarkup.builder().keyboard(rows).build());
     }
@@ -193,7 +309,6 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     }
 
     private void onLog(long chatId, String command) {
-        // /log sport Пробежал 5км
         String[] parts = command.split(" ", 3);
         if (parts.length < 3) {
             send(chatId, "Формат: `/log <домен> <описание>`\nПример: `/log sport Пробежал 5км`");
@@ -220,6 +335,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         send(chatId, """
             *Команды:*
 
+            /profile — заполнить/обновить профиль
             /domains — выбрать направление
             /free — авто-режим (определяю тему сам)
             /goals — твои активные цели
@@ -231,7 +347,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             """);
     }
 
-    // ─── Callback (инлайн-кнопки) ─────────────────────────────────────────────
+    // ─── Callback ─────────────────────────────────────────────────────────────
 
     private void handleCallback(Update update) {
         long chatId = update.getCallbackQuery().getMessage().getChatId();
@@ -249,6 +365,30 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
                     send(chatId, icon + "*" + d.getName() + "* — слушаю.");
                 });
             }
+        } else if (data.startsWith("goal:")) {
+            String pending = pendingGoal.remove(chatId);
+            if (pending == null) return;
+
+            if ("goal:confirm".equals(data)) {
+                String[] parts = pending.split("\\|", 2);
+                String slug = parts[0];
+                String goalText = parts[1];
+                domainRepository.findByUserIdAndSlug(USER_ID, slug).ifPresent(d -> {
+                    coachService.saveGoal(USER_ID, d, goalText);
+                    send(chatId, "✅ Цель зафиксирована в *" + d.getName() + "*!\n\n" +
+                            "Посмотреть все цели: /goals");
+                });
+            } else {
+                send(chatId, "Хорошо, просто разговор 👍");
+            }
+        } else if (data.startsWith("profile:activity:")) {
+            String level = data.substring("profile:activity:".length());
+            userProfileRepository.findFirstByOrderByIdAsc().ifPresent(p -> {
+                p.setActivityLevel(level);
+                userProfileRepository.save(p);
+            });
+            profileStep.put(chatId, "health");
+            send(chatId, "✅ Уровень активности сохранён.\n\nЕсть ли что-то важное по здоровью что я должен учитывать? (аллергии, травмы, особенности)\nИли /skip:");
         }
     }
 
@@ -264,7 +404,6 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
 
         String reply = coachService.chat(USER_ID, domain.orElse(null), text);
 
-        // В авто-режиме показываем какой коуч ответил
         if (fixedSlug == null && domain.isPresent()) {
             Domain d = domain.get();
             String tag = "\n\n_— " + (d.getIcon() != null ? d.getIcon() + " " : "") + d.getName() + "_";
@@ -272,6 +411,24 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         }
 
         send(chatId, reply);
+
+        // Детектор целей — предлагаем зафиксировать если нашли цель
+        if (domain.isPresent()) {
+            Domain d = domain.get();
+            coachService.detectGoal(d, text).ifPresent(goalText -> {
+                pendingGoal.put(chatId, d.getSlug() + "|" + goalText);
+                sendWithKeyboard(chatId,
+                        "🎯 Похоже ты сформулировал цель:\n\n*" + goalText + "*\n\nЗафиксировать?",
+                        InlineKeyboardMarkup.builder().keyboard(List.of(
+                                new InlineKeyboardRow(
+                                        InlineKeyboardButton.builder()
+                                                .text("✅ Да, сохранить").callbackData("goal:confirm").build(),
+                                        InlineKeyboardButton.builder()
+                                                .text("❌ Нет").callbackData("goal:cancel").build()
+                                )
+                        )).build());
+            });
+        }
     }
 
     private void logActivityFromInput(long chatId, String text) {
@@ -284,14 +441,14 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         }
     }
 
-    // ─── Утилиты отправки ─────────────────────────────────────────────────────
+    // ─── Утилиты ──────────────────────────────────────────────────────────────
 
     private void send(long chatId, String text) {
         try {
             telegramClient.execute(SendMessage.builder()
                     .chatId(chatId).text(text).parseMode("Markdown").build());
         } catch (TelegramApiException e) {
-            log.error("Send failed for chatId={}: {}", chatId, e.getMessage());
+            log.error("Send failed chatId={}: {}", chatId, e.getMessage());
         }
     }
 
@@ -309,11 +466,10 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             telegramClient.execute(SendChatAction.builder()
                     .chatId(chatId).action("typing").build());
         } catch (TelegramApiException e) {
-            log.debug("Typing indicator failed (non-critical): {}", e.getMessage());
+            log.debug("Typing indicator failed: {}", e.getMessage());
         }
     }
 
-    /** Вызывается из CheckInScheduler */
     public void sendToChat(Long chatId, String text) {
         send(chatId, text);
     }
