@@ -17,6 +17,7 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
   ai:
+    # Chat — через OpenRouter (поддерживает gpt-4o, работает из РФ)
     openai:
       api-key: ${OPENAI_API_KEY}
       base-url: https://openrouter.ai/api
@@ -25,11 +26,22 @@ spring:
           model: openai/gpt-4o
           max-tokens: 3000
           temperature: 0.7
-      # embedding отключён — OpenRouter не поддерживает embeddings endpoint
-      # включить когда будет прямой ключ OpenAI:
-      # embedding:
-      #   options:
-      #     model: text-embedding-3-small
+      # Embedding через OpenRouter отключён — он не поддерживает /v1/embeddings
+      # Используем отдельный бин в AiConfig.java с прямым OpenAI ключом
+
+    vectorstore:
+      pgvector:
+        index-type: hnsw
+        distance-type: cosine_distance
+        dimensions: 1536          # text-embedding-3-small = 1536 dims
+        initialize-schema: true
+
+# Отдельный ключ для embeddings — прямой OpenAI (не OpenRouter)
+# Получить на: https://platform.openai.com/api-keys
+# Стоимость: ~$0.001/месяц для личного использования
+openai:
+  embedding:
+    api-key: ${OPENAI_EMBEDDING_API_KEY}
 
 telegram:
   bot:
@@ -39,6 +51,7 @@ telegram:
     channel-id: ${TELEGRAM_CHANNEL_ID:-1003786886469}
 
 coach:
+  owner-chat-id: ${COACH_OWNER_CHAT_ID:0}
   max-history-messages: 20
   weekly-report-days: 7
   checkin-morning-cron: "0 0 9 * * *"
@@ -49,3 +62,9 @@ logging:
     ai.personal: DEBUG
     org.springframework.ai: INFO
     org.telegram: INFO
+
+strava:
+  client-id: ${STRAVA_CLIENT_ID:}
+  client-secret: ${STRAVA_CLIENT_SECRET:}
+  refresh-token: ${STRAVA_REFRESH_TOKEN:}
+

@@ -151,6 +151,11 @@ public class PublishService {
                 .call()
                 .content();
 
+        if (result == null || result.isBlank()) {
+            log.warn("Model returned empty response for post type={}", type);
+            return "Не удалось сгенерировать пост — модель вернула пустой ответ. Попробуй позже.";
+        }
+
         log.info("Post generated: type={} length={}", type, result.length());
         return result;
     }

@@ -9,6 +9,8 @@ import ai.personal.secretary.service.CoachService;
 import ai.personal.secretary.service.DomainRouterService;
 import ai.personal.secretary.service.DomainService;
 import ai.personal.secretary.service.PublishService;
+import ai.personal.secretary.service.StatsService;
+import ai.personal.secretary.service.StravaService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -46,6 +48,8 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     private final DomainRepository domainRepository;
     private final UserProfileRepository userProfileRepository;
     private final PublishService publishService;
+    private final StatsService statsService;
+    private final StravaService stravaService;
 
     @Value("${telegram.bot.channel-id:0}")
     private String channelId;
@@ -100,7 +104,9 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             ActivityService activityService,
             DomainRepository domainRepository,
             UserProfileRepository userProfileRepository,
-            PublishService publishService) {
+            PublishService publishService,
+            StatsService statsService,
+            StravaService stravaService) {
 
         this.botToken = botToken;
         this.telegramClient = new OkHttpTelegramClient(botToken);
@@ -111,6 +117,8 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         this.domainRepository = domainRepository;
         this.userProfileRepository = userProfileRepository;
         this.publishService = publishService;
+        this.statsService = statsService;
+        this.stravaService = stravaService;
     }
 
     @Override
@@ -186,16 +194,20 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     private void handleCommand(long chatId, String command) {
         String cmd = command.split(" ")[0].toLowerCase();
         switch (cmd) {
-            case "/start"   -> onStart(chatId);
-            case "/profile" -> onProfileStart(chatId);
-            case "/publish" -> onPublish(chatId);
-            case "/domains" -> onDomains(chatId);
-            case "/free"    -> onFree(chatId);
-            case "/goals"   -> onGoals(chatId);
-            case "/log"     -> onLog(chatId, command);
-            case "/summary" -> onSummary(chatId);
-            case "/help"    -> onHelp(chatId);
-            default         -> handleChat(chatId, command);
+            case "/start"        -> onStart(chatId);
+            case "/profile"      -> onProfileStart(chatId);
+            case "/publish"      -> onPublish(chatId);
+            case "/strava"       -> onStrava(chatId);
+            case "/stats"        -> onStats(chatId, 7);
+            case "/stats30"      -> onStats(chatId, 30);
+            case "/strava-stats" -> onStravaStats(chatId);
+            case "/domains"      -> onDomains(chatId);
+            case "/free"         -> onFree(chatId);
+            case "/goals"        -> onGoals(chatId);
+            case "/log"          -> onLog(chatId, command);
+            case "/summary"      -> onSummary(chatId);
+            case "/help"         -> onHelp(chatId);
+            default              -> handleChat(chatId, command);
         }
     }
 
@@ -491,6 +503,26 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         send(chatId, "📊 *Итоги недели*\n\n" + reply);
     }
 
+    private void onStrava(long chatId) {
+        send(chatId, "⏳ Синхронизирую тренировки со Strava...");
+        int count = stravaService.syncNow();
+        if (count < 0) {
+            send(chatId, "❌ Strava не настроена. Добавь токены в start.sh");
+        } else if (count == 0) {
+            send(chatId, "✅ Новых тренировок за последние 7 дней нет.");
+        } else {
+            send(chatId, "✅ Импортировано *" + count + "* тренировок из Strava!\n\nПосмотреть: /domains → Спорт");
+        }
+    }
+
+    private void onStats(long chatId, int days) {
+        send(chatId, statsService.buildStats(days));
+    }
+
+    private void onStravaStats(long chatId) {
+        send(chatId, statsService.buildStravaStats(7));
+    }
+
     private void onHelp(long chatId) {
         send(chatId, """
             *Команды:*
@@ -499,6 +531,10 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             /domains — выбрать направление
             /free — авто-режим (определяю тему сам)
             /goals — твои активные цели
+            /stats — статистика за 7 дней
+            /stats30 — статистика за 30 дней
+            /strava — синхронизировать тренировки из Strava
+            /strava\\-stats — детальная статистика Strava
             /log <домен> <текст> — записать активность
             /publish — опубликовать пост в канал
             /summary — итоги недели
