@@ -44,4 +44,29 @@ public class ActivityService {
                 .orElseThrow(() -> new IllegalArgumentException("Domain not found: " + domainSlug));
         return activityLogRepository.findLastByDomainId(domain.getId(), limit);
     }
+
+    /**
+     * Сохраняет настроение и энергию без привязки к конкретному домену.
+     * Сохраняем в первый доступный домен пользователя (или любой).
+     */
+    @Transactional
+    public void logMeta(Long userId, String summary, Integer moodScore, Integer energyScore) {
+        UserProfile user = userProfileRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
+
+        // Берём первый доступный домен
+        Domain domain = domainRepository.findAllByUserId(userId).stream()
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("No domains found for user: " + userId));
+
+        activityLogRepository.save(ActivityLog.builder()
+                .user(user).domain(domain)
+                .loggedAt(LocalDateTime.now())
+                .summary(summary)
+                .moodScore(moodScore)
+                .energyScore(energyScore)
+                .build());
+
+        log.info("Meta activity saved: user={} mood={} energy={}", userId, moodScore, energyScore);
+    }
 }

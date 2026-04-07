@@ -9,4 +9,5 @@ import java.util.Optional;
 public interface DomainRepository extends JpaRepository<Domain, Long> {
     List<Domain> findByUserIdAndIsActiveTrueOrderBySortOrderAsc(Long userId);
     Optional<Domain> findByUserIdAndSlug(Long userId, String slug);
+    List<Domain> findAllByUserId(Long userId);
 }

@@ -32,7 +32,6 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.Set;
 
 @Component
 @Slf4j
@@ -56,44 +55,45 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
 
     // chatId → выбранный slug домена (null = авто-роутинг)
     private final Map<Long, String> userDomainState = new ConcurrentHashMap<>();
-
     // chatId → ждём ввод активности для slug
     private final Map<Long, String> pendingActivity = new ConcurrentHashMap<>();
-
     // chatId → цель ожидающая подтверждения: "domainSlug|goalText"
     private final Map<Long, String> pendingGoal = new ConcurrentHashMap<>();
-
     // chatId → текущий шаг заполнения профиля
     private final Map<Long, String> profileStep = new ConcurrentHashMap<>();
-
-    // chatId → тип публикации ожидающей контент ("книга", "фильм" и т.д.)
+    // chatId → ждём оценку энергии после mood
+    private final Map<Long, Integer> pendingMoodScore = new ConcurrentHashMap<>();
+    // chatId → тип публикации ожидающей контент
     private final Map<Long, String> pendingPublish = new ConcurrentHashMap<>();
-
-    // chatId → черновик поста ожидающий подтверждения публикации
+    // chatId → черновик поста ожидающий подтверждения
     private final Map<Long, String> pendingPost = new ConcurrentHashMap<>();
-
-    // chatId → ждём ответ о прогрессе по целям (от scheduler)
+    // chatId → ждём ответ о прогрессе по целям
     private final Set<Long> pendingGoalCheck = ConcurrentHashMap.newKeySet();
-
-    // chatId → ждём тему для ежедневного поста (от scheduler)
+    // chatId → ждём тему для ежедневного поста
     private final Set<Long> pendingDailyPost = ConcurrentHashMap.newKeySet();
 
-    /** Вызывается из CheckInScheduler — переводим бота в режим ожидания ответа по целям */
-    public void setPendingGoalCheck(Long chatId) {
-        pendingGoalCheck.add(chatId);
+    // ─── Rate Limiter ─────────────────────────────────────────────────────────
+    private final Map<Long, java.util.Deque<Long>> rateLimitMap = new ConcurrentHashMap<>();
+    private static final int MAX_MESSAGES_PER_MINUTE = 15;
+
+    private boolean isRateLimited(long chatId) {
+        long now = System.currentTimeMillis();
+        var timestamps = rateLimitMap.computeIfAbsent(chatId, k -> new java.util.ArrayDeque<>());
+        while (!timestamps.isEmpty() && now - timestamps.peekFirst() > 60_000) {
+            timestamps.pollFirst();
+        }
+        if (timestamps.size() >= MAX_MESSAGES_PER_MINUTE) return true;
+        timestamps.addLast(now);
+        return false;
     }
 
-    /** Вызывается из CheckInScheduler — переводим бота в режим ожидания темы поста */
-    public void setPendingDailyPost(Long chatId) {
-        pendingDailyPost.add(chatId);
-    }
+    /** Вызывается из CheckInScheduler */
+    public void setPendingGoalCheck(Long chatId) { pendingGoalCheck.add(chatId); }
+    public void setPendingDailyPost(Long chatId)  { pendingDailyPost.add(chatId); }
 
     private static final Long USER_ID = 2L;
-
-    // Шаги профиля по порядку
     private static final List<String> PROFILE_STEPS = List.of(
-            "birth_date", "weight", "height", "activity", "health"
-    );
+            "birth_date", "weight", "height", "activity", "health");
 
     public CoachBot(
             @Value("${telegram.bot.token}") String botToken,
@@ -108,24 +108,21 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             StatsService statsService,
             StravaService stravaService) {
 
-        this.botToken = botToken;
-        this.telegramClient = new OkHttpTelegramClient(botToken);
-        this.coachService = coachService;
-        this.routerService = routerService;
-        this.domainService = domainService;
+        this.botToken        = botToken;
+        this.telegramClient  = new OkHttpTelegramClient(botToken);
+        this.coachService    = coachService;
+        this.routerService   = routerService;
+        this.domainService   = domainService;
         this.activityService = activityService;
-        this.domainRepository = domainRepository;
+        this.domainRepository      = domainRepository;
         this.userProfileRepository = userProfileRepository;
-        this.publishService = publishService;
-        this.statsService = statsService;
-        this.stravaService = stravaService;
+        this.publishService  = publishService;
+        this.statsService    = statsService;
+        this.stravaService   = stravaService;
     }
 
-    @Override
-    public String getBotToken() { return botToken; }
-
-    @Override
-    public LongPollingUpdateConsumer getUpdatesConsumer() { return this; }
+    @Override public String getBotToken() { return botToken; }
+    @Override public LongPollingUpdateConsumer getUpdatesConsumer() { return this; }
 
     // ─── Главный обработчик ───────────────────────────────────────────────────
 
@@ -146,7 +143,11 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         long chatId = update.getMessage().getChatId();
         String text = update.getMessage().getText().trim();
 
-        // Приоритет: заполнение профиля
+        // Rate limiting
+        if (isRateLimited(chatId)) {
+            send(chatId, "⏳ Чуть помедленнее — не более " + MAX_MESSAGES_PER_MINUTE + " сообщений в минуту.");
+            return;
+        }
         if (profileStep.containsKey(chatId)) {
             handleProfileInput(chatId, text);
             return;
@@ -196,11 +197,14 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         switch (cmd) {
             case "/start"        -> onStart(chatId);
             case "/profile"      -> onProfileStart(chatId);
+            case "/mood"         -> onMood(chatId);
             case "/publish"      -> onPublish(chatId);
             case "/strava"       -> onStrava(chatId);
             case "/stats"        -> onStats(chatId, 7);
             case "/stats30"      -> onStats(chatId, 30);
             case "/strava-stats" -> onStravaStats(chatId);
+            case "/progress"     -> onProgress(chatId);
+            case "/week"         -> onWeek(chatId);
             case "/domains"      -> onDomains(chatId);
             case "/free"         -> onFree(chatId);
             case "/goals"        -> onGoals(chatId);
@@ -523,6 +527,58 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         send(chatId, statsService.buildStravaStats(7));
     }
 
+    private void onProgress(long chatId) {
+        send(chatId, "⏳ Анализирую прогресс по целям...");
+        sendTyping(chatId);
+        String analysis = coachService.analyzeGoalProgress(USER_ID);
+        if (analysis.isBlank()) {
+            send(chatId, "Активных целей пока нет. Поставь цель в диалоге с коучем!");
+        } else {
+            send(chatId, "🎯 *Прогресс по целям*\n\n" + analysis);
+        }
+    }
+
+    private void onMood(long chatId) {
+        sendWithKeyboard(chatId, "Как себя чувствуешь прямо сейчас?",
+                InlineKeyboardMarkup.builder().keyboard(List.of(
+                        new InlineKeyboardRow(
+                                InlineKeyboardButton.builder().text("😫 1").callbackData("mood:1").build(),
+                                InlineKeyboardButton.builder().text("😕 2").callbackData("mood:2").build(),
+                                InlineKeyboardButton.builder().text("😐 3").callbackData("mood:3").build(),
+                                InlineKeyboardButton.builder().text("🙂 4").callbackData("mood:4").build(),
+                                InlineKeyboardButton.builder().text("😊 5").callbackData("mood:5").build()
+                        )
+                )).build());
+    }
+
+    private void onWeek(long chatId) {
+        send(chatId, "⏳ Собираю сводку недели...");
+        sendTyping(chatId);
+
+        // Статистика активностей
+        String stats = statsService.buildStats(7);
+
+        // Прогресс по целям
+        String progress = coachService.analyzeGoalProgress(USER_ID);
+
+        // Данные Strava
+        String stravaStats = statsService.buildStravaStats(7);
+
+        // Собираем всё вместе
+        var sb = new StringBuilder();
+        sb.append(stats).append("\n");
+
+        if (!stravaStats.contains("нет")) {
+            sb.append(stravaStats).append("\n");
+        }
+
+        if (!progress.isBlank()) {
+            sb.append("🎯 *Прогресс по целям:*\n").append(progress);
+        }
+
+        send(chatId, sb.toString());
+    }
+
     private void onHelp(long chatId) {
         send(chatId, """
             *Команды:*
@@ -530,10 +586,12 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             /profile — заполнить/обновить профиль
             /domains — выбрать направление
             /free — авто-режим (определяю тему сам)
-            /goals — твои активные цели
+            /goals — активные цели
+            /progress — прогресс по целям за 2 недели
+            /week — сводка текущей недели
             /stats — статистика за 7 дней
             /stats30 — статистика за 30 дней
-            /strava — синхронизировать тренировки из Strava
+            /strava — синхронизировать тренировки
             /strava\\-stats — детальная статистика Strava
             /log <домен> <текст> — записать активность
             /publish — опубликовать пост в канал
@@ -705,6 +763,38 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             });
             profileStep.put(chatId, "health");
             send(chatId, "✅ Уровень активности сохранён.\n\nЕсть ли что-то важное по здоровью что я должен учитывать? (аллергии, травмы, особенности)\nИли /skip:");
+        } else if (data.startsWith("mood:")) {
+            int moodScore = Integer.parseInt(data.substring(5));
+            pendingMoodScore.put(chatId, moodScore);
+            sendWithKeyboard(chatId, "Понял! Теперь оцени энергию:",
+                    InlineKeyboardMarkup.builder().keyboard(List.of(
+                            new InlineKeyboardRow(
+                                    InlineKeyboardButton.builder().text("🪫 1").callbackData("energy:1").build(),
+                                    InlineKeyboardButton.builder().text("😴 2").callbackData("energy:2").build(),
+                                    InlineKeyboardButton.builder().text("⚡ 3").callbackData("energy:3").build(),
+                                    InlineKeyboardButton.builder().text("🔥 4").callbackData("energy:4").build(),
+                                    InlineKeyboardButton.builder().text("💥 5").callbackData("energy:5").build()
+                            )
+                    )).build());
+        } else if (data.startsWith("energy:")) {
+            int energyScore = Integer.parseInt(data.substring(7));
+            Integer moodScore = pendingMoodScore.remove(chatId);
+            if (moodScore == null) return;
+
+            // Сохраняем в activity_logs через мета-домен
+            try {
+                String summary = String.format("Настроение: %d/5, Энергия: %d/5", moodScore, energyScore);
+                activityService.logMeta(USER_ID, summary, moodScore, energyScore);
+                log.info("Mood saved: chatId={} mood={} energy={}", chatId, moodScore, energyScore);
+            } catch (Exception e) {
+                log.error("Failed to save mood: {}", e.getMessage());
+            }
+
+            // Короткий отклик коуча
+            String emoji = moodScore >= 4 ? "🌟" : moodScore == 3 ? "👍" : "🤗";
+            String moodLabel = moodScore >= 4 ? "отличное" : moodScore == 3 ? "нормальное" : "не очень";
+            send(chatId, emoji + " Записал! Настроение " + moodLabel +
+                    ", энергия " + energyScore + "/5.\n\n_Можешь написать что происходит — я слушаю._");
         }
     }
 

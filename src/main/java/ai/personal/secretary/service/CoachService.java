@@ -45,7 +45,7 @@ public class CoachService {
         UserProfile user = findUser(userId);
 
         List<Message> history = buildHistory(userId, domain);
-        history.add(new UserMessage(userMessage));
+        history.add(new UserMessage(withTimestamp(userMessage)));
 
         ChatResponse response = ChatClient.builder(chatModel)
                 .defaultSystem(buildSystemPrompt(user, domain, userMessage))
@@ -133,6 +133,15 @@ public class CoachService {
     private String buildSystemPrompt(UserProfile user, Domain domain, String userMessage) {
         var sb = new StringBuilder();
 
+        // Текущая дата и время по Москве — коуч всегда знает когда происходит диалог
+        var moscowTime = LocalDateTime.now(java.time.ZoneId.of("Europe/Moscow"));
+        var dayOfWeek = moscowTime.getDayOfWeek()
+                .getDisplayName(java.time.format.TextStyle.FULL, new java.util.Locale("ru"));
+        sb.append("Сейчас: ").append(dayOfWeek).append(", ")
+                .append(moscowTime.format(DateTimeFormatter.ofPattern("d MMMM yyyy, HH:mm",
+                        new java.util.Locale("ru"))))
+                .append(" (МСК).\n\n");
+
         if (domain == null) {
             sb.append("Ты — персональный AI-коуч ").append(user.getName()).append(".\n");
             sb.append("""
@@ -203,15 +212,34 @@ public class CoachService {
         var dbMessages = chatMessageRepository.findLastByUserAndDomain(userId, domainId, maxHistory);
         Collections.reverse(dbMessages);
 
+        var fmt = DateTimeFormatter.ofPattern("d MMM HH:mm", new java.util.Locale("ru"));
+        var moscowZone = java.time.ZoneId.of("Europe/Moscow");
+
         List<Message> messages = new ArrayList<>();
         for (var msg : dbMessages) {
             if (msg.getRole() == ChatMessage.MessageRole.USER) {
-                messages.add(new UserMessage(msg.getContent()));
+                // Добавляем время сообщения по Москве
+                String timePrefix = "";
+                if (msg.getCreatedAt() != null) {
+                    var moscowTime = msg.getCreatedAt().atZone(java.time.ZoneId.systemDefault())
+                            .withZoneSameInstant(moscowZone).toLocalDateTime();
+                    timePrefix = "[" + moscowTime.format(fmt) + " МСК] ";
+                }
+                messages.add(new UserMessage(timePrefix + msg.getContent()));
             } else {
                 messages.add(new AssistantMessage(msg.getContent()));
             }
         }
         return messages;
+    }
+
+    /**
+     * Форматирует текущее сообщение с timestamp по Москве
+     */
+    private String withTimestamp(String message) {
+        var moscowTime = LocalDateTime.now(java.time.ZoneId.of("Europe/Moscow"));
+        var fmt = DateTimeFormatter.ofPattern("d MMM HH:mm", new java.util.Locale("ru"));
+        return "[" + moscowTime.format(fmt) + " МСК] " + message;
     }
 
     // ── Еженедельный отчёт ────────────────────────────────────────────────────
@@ -294,8 +322,95 @@ public class CoachService {
         return chat(userId, null, prompt);
     }
 
+    /**
+     * Анализирует прогресс по всем активным целям пользователя.
+     * Для каждой цели оценивает динамику активностей и даёт короткий вывод.
+     * Используется в команде /week и еженедельном отчёте.
+     */
+    @Transactional(readOnly = true)
+    public String analyzeGoalProgress(Long userId) {
+        var activeGoals = goalRepository.findAll().stream()
+                .filter(g -> g.getStatus() == DomainGoal.GoalStatus.ACTIVE)
+                .filter(g -> g.getDomain().getUser().getId().equals(userId))
+                .toList();
+
+        if (activeGoals.isEmpty()) return "";
+
+        var from = LocalDateTime.now().minusDays(14);
+        var recentActivity = activityLogRepository.findAllByUserAndPeriod(userId, from);
+        var actByDomain = recentActivity.stream()
+                .collect(Collectors.groupingBy(a -> a.getDomain().getId()));
+
+        // Строим контекст для анализа
+        var context = new StringBuilder();
+        for (var goal : activeGoals) {
+            context.append("Цель: ").append(goal.getTitle());
+            if (goal.getTargetDate() != null) {
+                context.append(" (дедлайн: ").append(goal.getTargetDate()).append(")");
+            }
+            context.append("\nДомен: ").append(goal.getDomain().getName()).append("\n");
+
+            var acts = actByDomain.getOrDefault(goal.getDomain().getId(), List.of());
+            if (acts.isEmpty()) {
+                context.append("Активностей за 2 недели: нет\n");
+            } else {
+                context.append("Активностей за 2 недели: ").append(acts.size()).append("\n");
+                acts.stream().limit(3).forEach(a ->
+                        context.append("  - ").append(a.getSummary()).append("\n"));
+            }
+            context.append("\n");
+        }
+
+        String prompt = String.format("""
+                Проанализируй прогресс по целям пользователя за последние 2 недели:
+                            
+                %s
+                            
+                Для каждой цели дай:
+                • Короткую оценку прогресса (идёт по плану / нужно ускориться / нет активности)
+                • Одну конкретную рекомендацию на ближайшие 3 дня
+                            
+                Формат: эмодзи + название цели + оценка + рекомендация.
+                Говори честно но с поддержкой. Не более 5 предложений на цель.
+                Отвечай на русском.
+                """, context);
+
+        return chat(userId, null, prompt);
+    }
+
     public List<ChatMessage> getHistory(Long userId, Long domainId) {
         return chatMessageRepository.findAllByUserAndDomainAsc(userId, domainId);
+    }
+
+    /**
+     * Собирает краткий контекст вчерашних разговоров из всех доменов.
+     * Используется в утреннем check-in чтобы коуч помнил что обсуждалось вчера.
+     */
+    @Transactional(readOnly = true)
+    public String getYesterdayContext(Long userId) {
+        var yesterdayStart = LocalDateTime.now().minusDays(1)
+                .withHour(0).withMinute(0).withSecond(0);
+
+        var messages = chatMessageRepository.findByUserAndPeriod(userId, yesterdayStart);
+        if (messages.isEmpty()) return "";
+
+        var fmt = DateTimeFormatter.ofPattern("HH:mm", new java.util.Locale("ru"));
+        var sb = new StringBuilder("Вчера в разговорах обсуждалось:\n");
+
+        // Группируем по домену и берём только USER сообщения (что говорил пользователь)
+        messages.stream()
+                .filter(m -> m.getRole() == ChatMessage.MessageRole.USER)
+                .limit(20)
+                .forEach(m -> {
+                    String domain = m.getDomain() != null ? m.getDomain().getName() : "общее";
+                    String time = m.getCreatedAt() != null
+                            ? "[" + m.getCreatedAt().format(fmt) + "] " : "";
+                    sb.append("• ").append(time)
+                            .append("[").append(domain).append("] ")
+                            .append(m.getContent()).append("\n");
+                });
+
+        return sb.toString();
     }
 
     private UserProfile findUser(Long userId) {

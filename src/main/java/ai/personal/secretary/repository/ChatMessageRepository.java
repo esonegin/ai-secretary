@@ -17,8 +17,8 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
         LIMIT :limit
         """)
     List<ChatMessage> findLastByUserAndDomain(@Param("userId") Long userId,
-                                               @Param("domainId") Long domainId,
-                                               @Param("limit") int limit);
+                                              @Param("domainId") Long domainId,
+                                              @Param("limit") int limit);
 
     @Query("""
         SELECT m FROM ChatMessage m
@@ -27,5 +27,14 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
         ORDER BY m.createdAt ASC
         """)
     List<ChatMessage> findAllByUserAndDomainAsc(@Param("userId") Long userId,
-                                                 @Param("domainId") Long domainId);
+                                                @Param("domainId") Long domainId);
+
+    @Query("""
+        SELECT m FROM ChatMessage m
+        WHERE m.user.id = :userId
+          AND m.createdAt >= :from
+        ORDER BY m.createdAt ASC
+        """)
+    List<ChatMessage> findByUserAndPeriod(@Param("userId") Long userId,
+                                          @Param("from") java.time.LocalDateTime from);
 }

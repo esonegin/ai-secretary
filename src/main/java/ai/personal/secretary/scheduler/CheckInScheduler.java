@@ -1,6 +1,7 @@
 package ai.personal.secretary.scheduler;
 
 import ai.personal.secretary.bot.CoachBot;
+import ai.personal.secretary.repository.ActivityLogRepository;
 import ai.personal.secretary.repository.DomainGoalRepository;
 import ai.personal.secretary.repository.UserProfileRepository;
 import ai.personal.secretary.service.CoachService;
@@ -13,6 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
 import java.util.List;
@@ -27,6 +29,7 @@ public class CheckInScheduler {
     private final CoachBot coachBot;
     private final UserProfileRepository userProfileRepository;
     private final DomainGoalRepository goalRepository;
+    private final ActivityLogRepository activityLogRepository;
 
     @Value("${coach.owner-chat-id:0}")
     private Long ownerChatId;
@@ -42,12 +45,25 @@ public class CheckInScheduler {
         String name = userName();
         String day = LocalDate.now().getDayOfWeek()
                 .getDisplayName(TextStyle.FULL, new Locale("ru"));
+        String date = LocalDate.now().format(
+                DateTimeFormatter.ofPattern("d MMMM yyyy", new Locale("ru")));
+
+        // Собираем контекст вчерашних разговоров из всех доменов
+        String yesterdayContext = coachService.getYesterdayContext(USER_ID);
 
         String prompt = String.format("""
-            Доброе утро! Сегодня %s, %s.
-            Проведи краткий утренний check-in: спроси о планах на день по 2-3 ключевым направлениям.
-            Будь живым и конкретным, не шаблонным. Максимум 4-5 предложений.
-            """, day, name);
+            Доброе утро! Сегодня %s, %s (%s).
+            
+            %s
+            
+            Учти этот контекст — если вчера обсуждались планы на "завтра" или конкретные события,
+            сегодня это уже наступило. Не спрашивай о них как о неизвестных.
+            
+            Проведи краткий утренний check-in: напомни о ключевых делах дня если они известны из
+            вчерашнего контекста, спроси о самочувствии и настрое. Максимум 4-5 предложений.
+            Будь живым и конкретным, не шаблонным.
+            """, day, date, name,
+                yesterdayContext.isBlank() ? "Вчерашних разговоров нет." : yesterdayContext);
 
         String reply = coachService.chat(USER_ID, null, prompt);
         coachBot.sendToChat(ownerChatId, "☀️ *Доброе утро!*\n\n" + reply);
@@ -130,7 +146,48 @@ public class CheckInScheduler {
         log.info("Daily post request sent");
     }
 
-    // ── Еженедельный отчёт: воскресенье 20:00 ────────────────────────────────
+    // ── Напоминания о целях: каждый день в 18:00 ─────────────────────────────
+
+    @Scheduled(cron = "0 0 18 * * *")
+    public void goalReminders() {
+        if (ownerChatId == 0) return;
+
+        List<DomainGoal> activeGoals = goalRepository.findAll().stream()
+                .filter(g -> g.getStatus() == DomainGoal.GoalStatus.ACTIVE)
+                .filter(g -> g.getDomain().getUser().getId().equals(USER_ID))
+                .toList();
+
+        if (activeGoals.isEmpty()) return;
+
+        // Проверяем каждую цель — нет ли застоя 3+ дня
+        LocalDateTime threeDaysAgo = LocalDateTime.now().minusDays(3);
+
+        for (DomainGoal goal : activeGoals) {
+            // Ищем активности по домену за последние 3 дня
+            boolean hasRecentActivity = activityLogRepository
+                    .findAllByUserAndPeriod(USER_ID, threeDaysAgo)
+                    .stream()
+                    .anyMatch(a -> a.getDomain().getId().equals(goal.getDomain().getId()));
+
+            if (!hasRecentActivity) {
+                // Нет активности 3+ дней — отправляем мягкое напоминание
+                String prompt = String.format("""
+                    Цель пользователя: "%s" (домен: %s)
+                    По этой цели нет активности уже 3+ дня.
+                    
+                    Напиши короткое (2-3 предложения) мотивирующее напоминание.
+                    Без нотаций, с поддержкой. Предложи один маленький шаг который можно сделать сегодня.
+                    """, goal.getTitle(), goal.getDomain().getName());
+
+                String reminder = coachService.chat(USER_ID, null, prompt);
+                coachBot.sendToChat(ownerChatId,
+                        "💡 *Напоминание о цели:*\n\n" + reminder);
+
+                log.info("Goal reminder sent for: {}", goal.getTitle());
+                break; // Не спамим — максимум одно напоминание в день
+            }
+        }
+    }
 
     @Scheduled(cron = "0 0 20 * * SUN")
     public void weeklyReport() {
