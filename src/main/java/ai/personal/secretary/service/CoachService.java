@@ -31,6 +31,7 @@ public class CoachService {
     private final ActivityLogRepository activityLogRepository;
     private final UserProfileRepository userProfileRepository;
     private final MemoryService memoryService;
+    private final StatsService statsService;
 
     @Value("${coach.max-history-messages:20}")
     private int maxHistory;
@@ -133,15 +134,27 @@ public class CoachService {
     private String buildSystemPrompt(UserProfile user, Domain domain, String userMessage) {
         var sb = new StringBuilder();
 
-        // Текущая дата и время по Москве — коуч всегда знает когда происходит диалог
-        var moscowTime = LocalDateTime.now(java.time.ZoneId.of("Europe/Moscow"));
-        var dayOfWeek = moscowTime.getDayOfWeek()
-                .getDisplayName(java.time.format.TextStyle.FULL, new java.util.Locale("ru"));
-        sb.append("Сейчас: ").append(dayOfWeek).append(", ")
-                .append(moscowTime.format(DateTimeFormatter.ofPattern("d MMMM yyyy, HH:mm",
-                        new java.util.Locale("ru"))))
-                .append(" (МСК).\n\n");
+        // ── Временной контекст ────────────────────────────────────────────────
+        var moscowZone = java.time.ZoneId.of("Europe/Moscow");
+        var moscowNow = LocalDateTime.now(moscowZone);
+        var yesterday = moscowNow.minusDays(1);
+        var weekAgo = moscowNow.minusDays(7);
+        var dateFmt = DateTimeFormatter.ofPattern("d MMMM yyyy", new java.util.Locale("ru"));
+        var dayFmt = DateTimeFormatter.ofPattern("EEEE", new java.util.Locale("ru"));
 
+        sb.append("=== ВРЕМЕННОЙ КОНТЕКСТ ===\n");
+        sb.append("Сейчас: ").append(moscowNow.getDayOfWeek()
+                        .getDisplayName(java.time.format.TextStyle.FULL, new java.util.Locale("ru")))
+                .append(", ").append(moscowNow.format(
+                        DateTimeFormatter.ofPattern("d MMMM yyyy, HH:mm", new java.util.Locale("ru"))))
+                .append(" (МСК)\n");
+        sb.append("Вчера было: ").append(yesterday.format(dateFmt))
+                .append(" (").append(yesterday.format(dayFmt)).append(")\n");
+        sb.append("Неделю назад: ").append(weekAgo.format(dateFmt)).append("\n");
+        sb.append("Когда пользователь говорит 'вчера', 'сегодня', 'на этой неделе' — ")
+                .append("используй эти даты как точку отсчёта.\n\n");
+
+        // ── Роль коуча ────────────────────────────────────────────────────────
         if (domain == null) {
             sb.append("Ты — персональный AI-коуч ").append(user.getName()).append(".\n");
             sb.append("""
@@ -157,15 +170,22 @@ public class CoachService {
             appendRecentActivity(sb, domain);
         }
 
-        // Долгосрочная память — семантический поиск по прошлым разговорам
+        // ── Кросс-доменный контекст ───────────────────────────────────────────
+        // Всегда показываем последние активности из ВСЕХ доменов за последние 3 дня
+        appendCrossdomainContext(sb, user.getId(), domain);
+
+        // ── Прогресс по недельным целям тренировок ────────────────────────────
+        String weeklyProgress = statsService.buildWeeklyTargetProgress(user.getId());
+        if (!weeklyProgress.isBlank()) sb.append("\n").append(weeklyProgress).append("\n");
+
+        // ── Долгосрочная память ───────────────────────────────────────────────
         String memories = memoryService.recall(
                 user.getId(),
                 domain != null ? domain.getSlug() : null,
-                userMessage,
-                4
-        );
+                userMessage, 4);
         if (!memories.isBlank()) sb.append(memories);
 
+        // ── Профиль пользователя ──────────────────────────────────────────────
         sb.append("\nПользователь: ").append(user.getName());
         if (user.getAge() != null) sb.append(", ").append(user.getAge()).append(" лет");
         if (user.getWeightKg() != null) sb.append(", вес ").append(user.getWeightKg()).append(" кг");
@@ -175,6 +195,34 @@ public class CoachService {
         sb.append(".\n");
 
         return sb.toString();
+    }
+
+    /**
+     * Добавляет краткий контекст активностей из других доменов за последние 3 дня.
+     * Это позволяет агенту йоги знать что вчера была тяжёлая тренировка,
+     * а агенту работы — что пользователь плохо спал.
+     */
+    private void appendCrossdomainContext(StringBuilder sb, Long userId, Domain currentDomain) {
+        var from = LocalDateTime.now().minusDays(3);
+        var allRecent = activityLogRepository.findAllByUserAndPeriod(userId, from);
+
+        // Фильтруем — убираем текущий домен (он уже показан выше)
+        var otherDomainActivities = allRecent.stream()
+                .filter(a -> currentDomain == null ||
+                        !a.getDomain().getId().equals(currentDomain.getId()))
+                .toList();
+
+        if (otherDomainActivities.isEmpty()) return;
+
+        var fmt = DateTimeFormatter.ofPattern("d MMM HH:mm", new java.util.Locale("ru"));
+        sb.append("\n=== КОНТЕКСТ ИЗ ДРУГИХ НАПРАВЛЕНИЙ (последние 3 дня) ===\n");
+        otherDomainActivities.stream().limit(10).forEach(a -> {
+            String icon = a.getDomain().getIcon() != null ? a.getDomain().getIcon() + " " : "";
+            sb.append("- [").append(a.getLoggedAt().format(fmt)).append("] ")
+                    .append(icon).append(a.getDomain().getName()).append(": ")
+                    .append(a.getSummary()).append("\n");
+        });
+        sb.append("Учитывай этот контекст — не переспрашивай о том что уже известно.\n\n");
     }
 
     private void appendGoals(StringBuilder sb, Domain domain) {

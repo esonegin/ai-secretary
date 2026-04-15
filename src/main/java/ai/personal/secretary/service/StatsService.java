@@ -2,14 +2,17 @@ package ai.personal.secretary.service;
 
 import ai.personal.secretary.model.ActivityLog;
 import ai.personal.secretary.model.DomainGoal;
+import ai.personal.secretary.model.WeeklyTarget;
 import ai.personal.secretary.repository.ActivityLogRepository;
 import ai.personal.secretary.repository.DomainGoalRepository;
 import ai.personal.secretary.repository.UserProfileRepository;
+import ai.personal.secretary.repository.WeeklyTargetRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.TextStyle;
@@ -24,6 +27,7 @@ public class StatsService {
     private final ActivityLogRepository activityLogRepository;
     private final DomainGoalRepository goalRepository;
     private final UserProfileRepository userProfileRepository;
+    private final WeeklyTargetRepository weeklyTargetRepository;
 
     private static final Long USER_ID = 2L;
 
@@ -214,5 +218,64 @@ public class StatsService {
                 .max(Map.Entry.comparingByValue())
                 .map(e -> e.getKey().getDisplayName(TextStyle.FULL, new Locale("ru")))
                 .orElse(null);
+    }
+
+    /**
+     * Анализирует прогресс по недельным целям тренировок.
+     * Возвращает строку для системного промпта коуча.
+     *
+     * Пример: "Силовые: 1/3 ✅ | Бег: 0/2 ⚠️ | Велосипед: 2 (без лимита)"
+     */
+    @Transactional(readOnly = true)
+    public String buildWeeklyTargetProgress(Long userId) {
+        List<WeeklyTarget> targets = weeklyTargetRepository.findByUserId(userId);
+        if (targets.isEmpty()) return "";
+
+        // Начало текущей недели (понедельник)
+        LocalDateTime weekStart = LocalDate.now()
+                .with(DayOfWeek.MONDAY)
+                .atStartOfDay();
+        List<ActivityLog> weekLogs = activityLogRepository
+                .findAllByUserAndPeriod(userId, weekStart);
+
+        var sb = new StringBuilder("Прогресс по недельным целям тренировок:\n");
+        int daysLeft = 7 - LocalDate.now().getDayOfWeek().getValue(); // дней до воскресенья
+
+        for (WeeklyTarget target : targets) {
+            // Считаем активности по ключевым словам
+            String[] kw = target.getKeywords() != null
+                    ? target.getKeywords().split(",") : new String[]{target.getActivityType()};
+
+            long done = weekLogs.stream()
+                    .filter(a -> a.getDomain().getId().equals(target.getDomain().getId()))
+                    .filter(a -> {
+                        String summary = a.getSummary() != null ? a.getSummary().toLowerCase() : "";
+                        for (String k : kw) {
+                            if (summary.contains(k.trim().toLowerCase())) return true;
+                        }
+                        return false;
+                    })
+                    .count();
+
+            int remaining = Math.max(0, target.getTargetCount() - (int) done);
+            String status = done >= target.getTargetCount() ? "✅" :
+                    (remaining > daysLeft ? "🔴" : "🟡");
+
+            sb.append("• ").append(target.getActivityType()).append(": ")
+                    .append(done).append("/").append(target.getTargetCount())
+                    .append(" ").append(status);
+
+            if (remaining > 0) {
+                sb.append(" (осталось ").append(remaining).append(")");
+            }
+            sb.append("\n");
+        }
+
+        if (daysLeft <= 2) {
+            sb.append("⚠️ До конца недели ").append(daysLeft)
+                    .append(daysLeft == 1 ? " день" : " дня").append("\n");
+        }
+
+        return sb.toString();
     }
 }

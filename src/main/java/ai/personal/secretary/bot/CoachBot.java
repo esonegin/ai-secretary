@@ -95,6 +95,9 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     private static final List<String> PROFILE_STEPS = List.of(
             "birth_date", "weight", "height", "activity", "health");
 
+    @Value("${telegram.bot.owner-chat-id:0}")
+    private Long ownerChatId;
+
     public CoachBot(
             @Value("${telegram.bot.token}") String botToken,
             @Value("${telegram.bot.username}") String botUsername,
@@ -119,6 +122,40 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         this.publishService  = publishService;
         this.statsService    = statsService;
         this.stravaService   = stravaService;
+
+        // Регистрируем callback — коуч комментирует новые тренировки из Strava
+        stravaService.setOnNewActivities(this::notifyNewStravaActivities);
+    }
+
+    /** Вызывается из StravaService когда появились новые тренировки */
+    private void notifyNewStravaActivities(java.util.List<ai.personal.secretary.model.ActivityLog> activities) {
+        if (ownerChatId == null || ownerChatId == 0) return;
+
+        try {
+            // Формируем список тренировок для коуча
+            String activityList = activities.stream()
+                    .map(a -> "• " + a.getSummary())
+                    .collect(java.util.stream.Collectors.joining("\n"));
+
+            String prompt = String.format("""
+                Только что синхронизировались новые тренировки из Strava:
+                %s
+                
+                Дай короткий живой комментарий (2-3 предложения): отметь результат,
+                сравни с предыдущими если знаешь, мотивируй. Не будь формальным.
+                """, activityList);
+
+            String comment = coachService.chat(USER_ID, null, prompt);
+
+            String header = activities.size() == 1
+                    ? "🏅 *Новая тренировка из Strava:*"
+                    : "🏅 *Новые тренировки из Strava (" + activities.size() + "):*";
+
+            send(ownerChatId, header + "\n\n" + activityList + "\n\n" + comment);
+            log.info("Strava notification sent for {} activities", activities.size());
+        } catch (Exception e) {
+            log.error("Failed to send Strava notification: {}", e.getMessage());
+        }
     }
 
     @Override public String getBotToken() { return botToken; }
@@ -204,6 +241,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             case "/stats30"      -> onStats(chatId, 30);
             case "/strava-stats" -> onStravaStats(chatId);
             case "/progress"     -> onProgress(chatId);
+            case "/targets"      -> onTargets(chatId);
             case "/week"         -> onWeek(chatId);
             case "/domains"      -> onDomains(chatId);
             case "/free"         -> onFree(chatId);
@@ -234,6 +272,9 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
                         new InlineKeyboardRow(
                                 InlineKeyboardButton.builder().text("🎵 Музыка").callbackData("publish:music").build(),
                                 InlineKeyboardButton.builder().text("💭 Рефлексия").callbackData("publish:free").build()
+                        ),
+                        new InlineKeyboardRow(
+                                InlineKeyboardButton.builder().text("💪 Спорт (из Strava)").callbackData("publish:sport").build()
                         )
                 )).build());
     }
@@ -317,6 +358,20 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         } catch (TelegramApiException e) {
             send(chatId, "❌ Ошибка публикации: " + e.getMessage());
             log.error("Publish failed: {}", e.getMessage());
+        }
+    }
+
+    /** Публикует пост в канал без уведомления пользователю — для scheduler */
+    public void publishToChannel(String post) {
+        try {
+            telegramClient.execute(SendMessage.builder()
+                    .chatId(channelId)
+                    .text(post)
+                    .parseMode("Markdown")
+                    .build());
+            log.info("Post published to channel {} by scheduler", channelId);
+        } catch (TelegramApiException e) {
+            log.error("Scheduler publish failed: {}", e.getMessage());
         }
     }
 
@@ -486,16 +541,34 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
 
     private void onLog(long chatId, String command) {
         String[] parts = command.split(" ", 3);
-        if (parts.length < 3) {
-            send(chatId, "Формат: `/log <домен> <описание>`\nПример: `/log sport Пробежал 5км`");
+
+        // Если передан домен и текст — сохраняем сразу (старый формат)
+        if (parts.length == 3) {
+            try {
+                activityService.log(USER_ID, parts[1].toLowerCase(), parts[2], null, null, null);
+                send(chatId, "✅ Записано в *" + parts[1] + "*: " + parts[2]);
+            } catch (Exception e) {
+                send(chatId, "Домен `" + parts[1] + "` не найден. Список: /domains");
+            }
             return;
         }
-        try {
-            activityService.log(USER_ID, parts[1].toLowerCase(), parts[2], null, null, null);
-            send(chatId, "✅ Записано в *" + parts[1] + "*: " + parts[2]);
-        } catch (Exception e) {
-            send(chatId, "Домен `" + parts[1] + "` не найден. Список: /domains");
+
+        // Иначе — показываем кнопки выбора домена
+        List<Domain> domains = domainService.getAll(USER_ID);
+        if (domains.isEmpty()) { send(chatId, "Нет активных направлений."); return; }
+
+        List<InlineKeyboardRow> rows = new ArrayList<>();
+        List<InlineKeyboardButton> row = new ArrayList<>();
+        for (Domain d : domains) {
+            String label = (d.getIcon() != null ? d.getIcon() + " " : "") + d.getName();
+            row.add(InlineKeyboardButton.builder()
+                    .text(label).callbackData("log:" + d.getSlug()).build());
+            if (row.size() == 2) { rows.add(new InlineKeyboardRow(row)); row = new ArrayList<>(); }
         }
+        if (!row.isEmpty()) rows.add(new InlineKeyboardRow(row));
+
+        sendWithKeyboard(chatId, "В какое направление записать активность?",
+                InlineKeyboardMarkup.builder().keyboard(rows).build());
     }
 
     private void onSummary(long chatId) {
@@ -509,13 +582,14 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
 
     private void onStrava(long chatId) {
         send(chatId, "⏳ Синхронизирую тренировки со Strava...");
-        int count = stravaService.syncNow();
-        if (count < 0) {
-            send(chatId, "❌ Strava не настроена. Добавь токены в start.sh");
-        } else if (count == 0) {
-            send(chatId, "✅ Новых тренировок за последние 7 дней нет.");
+        var imported = stravaService.syncNow();
+        if (imported.isEmpty()) {
+            send(chatId, "✅ Новых тренировок нет.");
         } else {
-            send(chatId, "✅ Импортировано *" + count + "* тренировок из Strava!\n\nПосмотреть: /domains → Спорт");
+            String list = imported.stream()
+                    .map(a -> "• " + a.getSummary())
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            send(chatId, "✅ Импортировано *" + imported.size() + "* тренировок:\n\n" + list);
         }
     }
 
@@ -579,21 +653,34 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         send(chatId, sb.toString());
     }
 
+    private void onTargets(long chatId) {
+        String progress = statsService.buildWeeklyTargetProgress(USER_ID);
+        if (progress.isBlank()) {
+            send(chatId, "Недельные цели не настроены.\n\nДобавь их через SQL:\n" +
+                    "```sql\nINSERT INTO weekly_targets (user_id, domain_id, activity_type, target_count, keywords)\n" +
+                    "VALUES (2, <domain_id>, 'силовая', 3, 'силов,тренаж,качалк');\n```");
+        } else {
+            send(chatId, "🎯 *Недельные цели тренировок:*\n\n" + progress);
+        }
+    }
+
     private void onHelp(long chatId) {
         send(chatId, """
             *Команды:*
 
             /profile — заполнить/обновить профиль
+            /mood — записать настроение и энергию
             /domains — выбрать направление
-            /free — авто-режим (определяю тему сам)
+            /free — авто-режим
             /goals — активные цели
             /progress — прогресс по целям за 2 недели
+            /targets — прогресс по недельным целям тренировок
             /week — сводка текущей недели
             /stats — статистика за 7 дней
             /stats30 — статистика за 30 дней
             /strava — синхронизировать тренировки
             /strava\\-stats — детальная статистика Strava
-            /log <домен> <текст> — записать активность
+            /log — записать активность (с кнопками)
             /publish — опубликовать пост в канал
             /summary — итоги недели
             /help — справка
@@ -677,7 +764,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     private void handlePublishCallback(long chatId, String data) {
         switch (data) {
             case "publish:reading", "publish:cinema", "publish:music" -> {
-                String slug = data.substring(8); // после "publish:"
+                String slug = data.substring(8);
                 pendingPost.put(chatId, "input:" + slug);
                 String hint = switch (slug) {
                     case "reading" -> "Напиши о книге: название, автор, что зацепило, главные идеи.";
@@ -686,6 +773,38 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
                     default        -> "Опиши что хочешь опубликовать.";
                 };
                 send(chatId, "✍️ " + hint);
+            }
+            case "publish:sport" -> {
+                // Автоматически генерируем пост из данных Strava
+                send(chatId, "⏳ Собираю данные тренировок...");
+                sendTyping(chatId);
+                try {
+                    String stravaStats = statsService.buildStravaStats(7);
+                    String content = stravaStats.contains("нет")
+                            ? "Напиши пост о тренировках этой недели и планах на следующую."
+                            : "Данные тренировок за неделю:\n" + stravaStats +
+                            "\n\nНапиши вдохновляющий пост о тренировочной неделе от первого лица. " +
+                            "Конкретные цифры, личные ощущения, что получилось и к чему стремлюсь.";
+                    String post = publishService.generatePost("sport", content);
+                    pendingPost.put(chatId, "draft:" + post);
+                    send(chatId, "📝 *Черновик поста о тренировках:*\n\n" + post);
+                    sendWithKeyboard(chatId, "Публикуем?",
+                            InlineKeyboardMarkup.builder().keyboard(List.of(
+                                    new InlineKeyboardRow(
+                                            InlineKeyboardButton.builder()
+                                                    .text("✅ Опубликовать").callbackData("publish:confirm").build(),
+                                            InlineKeyboardButton.builder()
+                                                    .text("✏️ Переписать").callbackData("publish:rewrite").build(),
+                                            InlineKeyboardButton.builder()
+                                                    .text("➕ Добавить инфо").callbackData("publish:enrich").build(),
+                                            InlineKeyboardButton.builder()
+                                                    .text("❌ Отмена").callbackData("publish:cancel").build()
+                                    )
+                            )).build());
+                } catch (Exception e) {
+                    pendingPost.remove(chatId);
+                    send(chatId, "❌ Ошибка: " + e.getMessage());
+                }
             }
             case "publish:free" -> {
                 pendingPost.put(chatId, "input:null");
@@ -706,7 +825,6 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
                 }
             }
             case "publish:enrich" -> {
-                // Просим пользователя добавить больше информации
                 String state = pendingPost.get(chatId);
                 if (state != null && state.startsWith("draft:")) {
                     pendingPost.put(chatId, "enrich:" + state.substring(6));
@@ -739,6 +857,13 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             }
         } else if (data.startsWith("publish:")) {
             handlePublishCallback(chatId, data);
+        } else if (data.startsWith("log:")) {
+            String slug = data.substring(4);
+            domainRepository.findByUserIdAndSlug(USER_ID, slug).ifPresent(d -> {
+                pendingActivity.put(chatId, slug);
+                String icon = d.getIcon() != null ? d.getIcon() + " " : "";
+                send(chatId, icon + "*" + d.getName() + "* — напиши что сделал:");
+            });
         } else if (data.startsWith("goal:")) {
             String pending = pendingGoal.remove(chatId);
             if (pending == null) return;
