@@ -6,6 +6,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface TrainingSessionRepository extends JpaRepository<TrainingSession, Long> {
@@ -14,4 +15,7 @@ public interface TrainingSessionRepository extends JpaRepository<TrainingSession
 
     List<TrainingSession> findByUserIdAndWorkoutDateBetweenOrderByWorkoutDateDesc(
             Long userId, LocalDate from, LocalDate to);
+
+    Optional<TrainingSession> findByUserIdAndWorkoutDateAndDayType(
+            Long userId, LocalDate workoutDate, String dayType);
 }
