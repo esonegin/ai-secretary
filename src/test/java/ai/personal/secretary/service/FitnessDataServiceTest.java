@@ -1,6 +1,12 @@
 package ai.personal.secretary.service;
 
 import ai.personal.secretary.model.TrainingSession;
+import ai.personal.secretary.model.FitnessGoal;
+import ai.personal.secretary.model.TrainingProgram;
+import ai.personal.secretary.model.TrainingProgramDay;
+import ai.personal.secretary.repository.FitnessGoalRepository;
+import ai.personal.secretary.repository.TrainingProgramDayRepository;
+import ai.personal.secretary.repository.TrainingProgramRepository;
 import ai.personal.secretary.repository.TrainingSessionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,6 +27,15 @@ class FitnessDataServiceTest {
 
     @Mock
     private TrainingSessionRepository trainingSessionRepository;
+
+    @Mock
+    private FitnessGoalRepository fitnessGoalRepository;
+
+    @Mock
+    private TrainingProgramRepository trainingProgramRepository;
+
+    @Mock
+    private TrainingProgramDayRepository trainingProgramDayRepository;
 
     @InjectMocks
     private FitnessDataService fitnessDataService;
@@ -67,5 +82,57 @@ class FitnessDataServiceTest {
         assertSame(session, result);
         verify(trainingSessionRepository)
                 .findByUserIdAndWorkoutDateAndDayType(userId, workoutDate, dayType);
+    }
+
+    @Test
+    void getActiveGoalDelegatesToActiveGoalQuery() {
+        Long userId = 1L;
+        Optional<FitnessGoal> goal = Optional.of(new FitnessGoal());
+        when(fitnessGoalRepository.findFirstByUserIdAndStatusOrderByPriorityDescCreatedAtDesc(userId, "ACTIVE"))
+                .thenReturn(goal);
+
+        Optional<FitnessGoal> result = fitnessDataService.getActiveGoal(userId);
+
+        assertSame(goal, result);
+        verify(fitnessGoalRepository)
+                .findFirstByUserIdAndStatusOrderByPriorityDescCreatedAtDesc(userId, "ACTIVE");
+    }
+
+    @Test
+    void saveGoalDelegatesToRepository() {
+        FitnessGoal goal = new FitnessGoal();
+        when(fitnessGoalRepository.save(goal)).thenReturn(goal);
+
+        FitnessGoal result = fitnessDataService.saveGoal(goal);
+
+        assertSame(goal, result);
+        verify(fitnessGoalRepository).save(goal);
+    }
+
+    @Test
+    void getActiveProgramDelegatesToActiveProgramQuery() {
+        Long userId = 1L;
+        Optional<TrainingProgram> program = Optional.of(new TrainingProgram());
+        when(trainingProgramRepository.findFirstByUserIdAndStatusOrderByValidFromDescCreatedAtDesc(userId, "ACTIVE"))
+                .thenReturn(program);
+
+        Optional<TrainingProgram> result = fitnessDataService.getActiveProgram(userId);
+
+        assertSame(program, result);
+        verify(trainingProgramRepository)
+                .findFirstByUserIdAndStatusOrderByValidFromDescCreatedAtDesc(userId, "ACTIVE");
+    }
+
+    @Test
+    void getProgramDayDelegatesToProgramDayQuery() {
+        Long programId = 1L;
+        String dayType = "1";
+        Optional<TrainingProgramDay> day = Optional.of(new TrainingProgramDay());
+        when(trainingProgramDayRepository.findByProgramIdAndDayType(programId, dayType)).thenReturn(day);
+
+        Optional<TrainingProgramDay> result = fitnessDataService.getProgramDay(programId, dayType);
+
+        assertSame(day, result);
+        verify(trainingProgramDayRepository).findByProgramIdAndDayType(programId, dayType);
     }
 }
