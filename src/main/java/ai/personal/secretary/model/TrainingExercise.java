@@ -1,5 +1,6 @@
 package ai.personal.secretary.model;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
@@ -30,4 +31,16 @@ public class TrainingExercise {
     @JoinColumn(name = "session_id", nullable = false)
     @ToString.Exclude
     private TrainingSession session;
+
+    @Column(name = "exercise_order", nullable = false)
+    private Integer exerciseOrder;
+
+    @Column(name = "exercise_name", nullable = false, length = 150)
+    private String exerciseName;
+
+    @Column(name = "exercise_variant", length = 150)
+    private String exerciseVariant;
+
+    @Column(columnDefinition = "TEXT")
+    private String notes;
 }
