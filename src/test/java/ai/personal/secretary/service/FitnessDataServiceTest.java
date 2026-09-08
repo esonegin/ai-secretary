@@ -8,6 +8,8 @@ import ai.personal.secretary.repository.FitnessGoalRepository;
 import ai.personal.secretary.repository.TrainingProgramDayRepository;
 import ai.personal.secretary.repository.TrainingProgramRepository;
 import ai.personal.secretary.repository.TrainingSessionRepository;
+import ai.personal.secretary.repository.UserProfileRepository;
+import ai.personal.secretary.model.UserProfile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -19,6 +21,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -36,6 +39,9 @@ class FitnessDataServiceTest {
 
     @Mock
     private TrainingProgramDayRepository trainingProgramDayRepository;
+
+    @Mock
+    private UserProfileRepository userProfileRepository;
 
     @InjectMocks
     private FitnessDataService fitnessDataService;
@@ -99,14 +105,20 @@ class FitnessDataServiceTest {
     }
 
     @Test
-    void saveGoalDelegatesToRepository() {
-        FitnessGoal goal = new FitnessGoal();
-        when(fitnessGoalRepository.save(goal)).thenReturn(goal);
+    void saveGoalCreatesActiveGoalForUser() {
+        Long userId = 1L;
+        String goalText = "Увеличить силу";
+        UserProfile user = new UserProfile();
+        FitnessGoal savedGoal = new FitnessGoal();
+        when(userProfileRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(fitnessGoalRepository.save(any(FitnessGoal.class))).thenReturn(savedGoal);
 
-        FitnessGoal result = fitnessDataService.saveGoal(goal);
+        FitnessGoal result = fitnessDataService.saveGoal(userId, goalText);
 
-        assertSame(goal, result);
-        verify(fitnessGoalRepository).save(goal);
+        assertSame(savedGoal, result);
+        verify(userProfileRepository).findById(userId);
+        verify(fitnessGoalRepository).save(FitnessGoal.builder()
+                .user(user).goalText(goalText).status("ACTIVE").build());
     }
 
     @Test

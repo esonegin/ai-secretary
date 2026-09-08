@@ -8,6 +8,7 @@ import ai.personal.secretary.repository.FitnessGoalRepository;
 import ai.personal.secretary.repository.TrainingProgramDayRepository;
 import ai.personal.secretary.repository.TrainingProgramRepository;
 import ai.personal.secretary.repository.TrainingSessionRepository;
+import ai.personal.secretary.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +26,7 @@ public class FitnessDataService {
     private final FitnessGoalRepository fitnessGoalRepository;
     private final TrainingProgramRepository trainingProgramRepository;
     private final TrainingProgramDayRepository trainingProgramDayRepository;
+    private final UserProfileRepository userProfileRepository;
 
     public List<TrainingSession> getWorkouts(Long userId) {
         return trainingSessionRepository.findByUserIdOrderByWorkoutDateDesc(userId);
@@ -46,8 +48,14 @@ public class FitnessDataService {
     }
 
     @Transactional
-    public FitnessGoal saveGoal(FitnessGoal goal) {
-        return fitnessGoalRepository.save(goal);
+    public FitnessGoal saveGoal(Long userId, String goalText) {
+        var user = userProfileRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
+        return fitnessGoalRepository.save(FitnessGoal.builder()
+                .user(user)
+                .goalText(goalText)
+                .status("ACTIVE")
+                .build());
     }
 
     public Optional<TrainingProgram> getActiveProgram(Long userId) {
