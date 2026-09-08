@@ -172,6 +172,16 @@ WHERE p.user_id = (SELECT id FROM user_profiles ORDER BY id LIMIT 1)
   AND p.version = 1
 ON CONFLICT (program_id, day_type) DO NOTHING;
 
+DELETE FROM training_program_exercises e
+USING training_program_days d, training_programs p
+WHERE e.program_day_id = d.id
+  AND d.program_id = p.id
+  AND p.user_id = (SELECT id FROM user_profiles ORDER BY id LIMIT 1)
+  AND p.name = 'Основная программа'
+  AND p.version = 1
+  AND d.day_type = '2'
+  AND (e.exercise_name = 'Вис на перекладине' OR e.exercise_order = 10);
+
 INSERT INTO training_program_exercises (
     program_day_id, exercise_order, exercise_name, exercise_variant
 )
@@ -183,28 +193,27 @@ JOIN (
         ('1', 1, 'Приседания со штангой', NULL),
         ('1', 2, 'Жим штанги лёжа', NULL),
         ('1', 3, 'Тяга верхнего блока', NULL),
-        ('1', 4, 'Плечи сидя', 'Shoulder Press / Smith'),
+        ('1', 4, 'Плечи сидя', NULL),
         ('1', 5, 'Подъём штанги на бицепс', NULL),
-        ('1', 6, 'Разгибание на трицепс', 'канат / прямая рукоять'),
+        ('1', 6, 'Разгибание на трицепс', NULL),
         ('1', 7, 'Пресс «молитва»', NULL),
         ('1', 8, 'Face Pull', NULL),
         ('1', 9, 'Wall Slides', NULL),
         ('2', 1, 'Наклонный жим гантелей', NULL),
         ('2', 2, 'Румынская тяга', NULL),
-        ('2', 3, 'Вертикальная тяга', 'обратный / параллельный хват'),
+        ('2', 3, 'Вертикальная тяга', NULL),
         ('2', 4, 'Отведения гантелей в стороны', NULL),
         ('2', 5, 'Face Pull', NULL),
         ('2', 6, 'Молотки сидя с гантелями', NULL),
         ('2', 7, 'Жим штанги узким хватом', NULL),
         ('2', 8, 'Растяжка грудных', NULL),
-        ('2', 9, 'Вис на перекладине', NULL),
-        ('2', 10, 'Wall Slides', NULL),
+        ('2', 9, 'Wall Slides', NULL),
         ('3', 1, 'Тяга нижнего блока', NULL),
         ('3', 2, 'Жим ногами', NULL),
         ('3', 3, 'Брусья с дополнительным весом', NULL),
         ('3', 4, 'One-Arm Cable Rear Delt Fly', NULL),
         ('3', 5, 'Подъём на бицепс в блоке сидя под углом', NULL),
-        ('3', 6, 'Разгибание на трицепс', 'прямая рукоять'),
+        ('3', 6, 'Разгибание на трицепс', NULL),
         ('3', 7, 'Пресс «молитва»', NULL),
         ('3', 8, 'Face Pull', NULL),
         ('3', 9, 'Wall Slides', NULL),
@@ -214,7 +223,9 @@ JOIN (
 WHERE p.user_id = (SELECT id FROM user_profiles ORDER BY id LIMIT 1)
   AND p.name = 'Основная программа'
   AND p.version = 1
-ON CONFLICT (program_day_id, exercise_order) DO NOTHING;
+ON CONFLICT (program_day_id, exercise_order) DO UPDATE
+SET exercise_name = EXCLUDED.exercise_name,
+    exercise_variant = EXCLUDED.exercise_variant;
 
 INSERT INTO training_program_sets (program_exercise_id, set_number)
 SELECT e.id, set_number
@@ -226,7 +237,7 @@ JOIN (
         ('1', 1, 3), ('1', 2, 3), ('1', 3, 3), ('1', 4, 3), ('1', 5, 3),
         ('1', 6, 3), ('1', 7, 3), ('1', 8, 2), ('1', 9, 2),
         ('2', 1, 3), ('2', 2, 3), ('2', 3, 3), ('2', 4, 3), ('2', 5, 2),
-        ('2', 6, 3), ('2', 7, 3), ('2', 8, 3), ('2', 9, 2), ('2', 10, 2),
+        ('2', 6, 3), ('2', 7, 3), ('2', 8, 3), ('2', 9, 2),
         ('3', 1, 3), ('3', 2, 3), ('3', 3, 3), ('3', 4, 3), ('3', 5, 3),
         ('3', 6, 3), ('3', 7, 3), ('3', 8, 2), ('3', 9, 2), ('3', 10, 3)
 ) AS seed(day_type, exercise_order, set_count)
