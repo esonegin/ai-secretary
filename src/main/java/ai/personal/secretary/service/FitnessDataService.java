@@ -9,6 +9,7 @@ import ai.personal.secretary.repository.FitnessGoalRepository;
 import ai.personal.secretary.repository.TrainingProgramDayRepository;
 import ai.personal.secretary.repository.TrainingProgramExerciseRepository;
 import ai.personal.secretary.repository.TrainingProgramRepository;
+import ai.personal.secretary.repository.TrainingProgramSetRepository;
 import ai.personal.secretary.repository.TrainingSessionRepository;
 import ai.personal.secretary.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +30,7 @@ public class FitnessDataService {
     private final TrainingProgramRepository trainingProgramRepository;
     private final TrainingProgramDayRepository trainingProgramDayRepository;
     private final TrainingProgramExerciseRepository trainingProgramExerciseRepository;
+    private final TrainingProgramSetRepository trainingProgramSetRepository;
     private final UserProfileRepository userProfileRepository;
 
     public List<TrainingSession> getWorkouts(Long userId) {
@@ -76,5 +78,9 @@ public class FitnessDataService {
                 .map(day -> trainingProgramExerciseRepository
                         .findByProgramDayIdOrderByExerciseOrder(day.getId()))
                 .orElseGet(List::of);
+    }
+
+    public long getProgramSetCount(Long programExerciseId) {
+        return trainingProgramSetRepository.countByProgramExerciseId(programExerciseId);
     }
 }

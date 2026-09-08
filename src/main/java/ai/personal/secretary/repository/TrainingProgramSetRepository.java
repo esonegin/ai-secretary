@@ -6,4 +6,6 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface TrainingProgramSetRepository extends JpaRepository<TrainingProgramSet, Long> {
+
+    long countByProgramExerciseId(Long programExerciseId);
 }

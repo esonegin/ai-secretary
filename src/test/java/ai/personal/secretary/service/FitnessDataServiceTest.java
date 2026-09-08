@@ -9,6 +9,7 @@ import ai.personal.secretary.repository.FitnessGoalRepository;
 import ai.personal.secretary.repository.TrainingProgramDayRepository;
 import ai.personal.secretary.repository.TrainingProgramExerciseRepository;
 import ai.personal.secretary.repository.TrainingProgramRepository;
+import ai.personal.secretary.repository.TrainingProgramSetRepository;
 import ai.personal.secretary.repository.TrainingSessionRepository;
 import ai.personal.secretary.repository.UserProfileRepository;
 import ai.personal.secretary.model.UserProfile;
@@ -44,6 +45,9 @@ class FitnessDataServiceTest {
 
     @Mock
     private TrainingProgramExerciseRepository trainingProgramExerciseRepository;
+
+    @Mock
+    private TrainingProgramSetRepository trainingProgramSetRepository;
 
     @Mock
     private UserProfileRepository userProfileRepository;
@@ -180,5 +184,15 @@ class FitnessDataServiceTest {
         List<TrainingProgramExercise> result = fitnessDataService.getProgramExercises(1L, "1");
 
         org.junit.jupiter.api.Assertions.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void getProgramSetCountDelegatesToRepository() {
+        when(trainingProgramSetRepository.countByProgramExerciseId(1L)).thenReturn(3L);
+
+        long result = fitnessDataService.getProgramSetCount(1L);
+
+        org.junit.jupiter.api.Assertions.assertEquals(3L, result);
+        verify(trainingProgramSetRepository).countByProgramExerciseId(1L);
     }
 }

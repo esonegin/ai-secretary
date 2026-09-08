@@ -33,6 +33,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 @Component
 @Slf4j
@@ -96,6 +97,9 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     public void setPendingDailyPost(Long chatId)  { pendingDailyPost.add(chatId); }
 
     private static final Long USER_ID = 2L;
+    private static final Pattern FITNESS_PLAN_PATTERN = Pattern.compile(
+            ".*\\b(\\d{2}\\.\\d{2}\\.\\d{4})\\b.*\\bдень\\s+([123])\\b.*",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private static final List<String> PROFILE_STEPS = List.of(
             "birth_date", "weight", "height", "activity", "health");
 
@@ -231,12 +235,31 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             return;
         }
 
-        if (text.startsWith("/")) {
-            handleCommand(chatId, text);
-        } else {
-            handleChat(chatId, text);
+        parseFitnessPlan(text).ifPresentOrElse(
+                plan -> handleFitnessPlan(chatId, plan),
+                () -> {
+                    if (text.startsWith("/")) {
+                        handleCommand(chatId, text);
+                    } else {
+                        handleChat(chatId, text);
+                    }
+                });
+    }
+
+    static Optional<FitnessPlanRequest> parseFitnessPlan(String text) {
+        var matcher = FITNESS_PLAN_PATTERN.matcher(text);
+        if (!matcher.matches()) return Optional.empty();
+
+        try {
+            return Optional.of(new FitnessPlanRequest(
+                    LocalDate.parse(matcher.group(1), DateTimeFormatter.ofPattern("dd.MM.yyyy")),
+                    matcher.group(2)));
+        } catch (DateTimeParseException e) {
+            return Optional.empty();
         }
     }
+
+    record FitnessPlanRequest(LocalDate date, String dayType) { }
 
     // ─── Команды ──────────────────────────────────────────────────────────────
 
@@ -710,6 +733,46 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
 
         pendingFitnessGoal.add(chatId);
         send(chatId, "Какая у тебя основная цель в тренировках?");
+    }
+
+    private void handleFitnessPlan(long chatId, FitnessPlanRequest plan) {
+        if (fitnessDataService.getActiveGoal(USER_ID).isEmpty()) {
+            send(chatId, "Сначала зафиксируй основную цель в тренировках: /fitness");
+            return;
+        }
+
+        var program = fitnessDataService.getActiveProgram(USER_ID);
+        if (program.isEmpty()) {
+            send(chatId, "Активная тренировочная программа пока не найдена.");
+            return;
+        }
+
+        var day = fitnessDataService.getProgramDay(program.get().getId(), plan.dayType());
+        if (day.isEmpty()) {
+            send(chatId, "День " + plan.dayType() + " в активной программе не найден.");
+            return;
+        }
+
+        var exercises = fitnessDataService.getProgramExercises(USER_ID, plan.dayType());
+        if (exercises.isEmpty()) {
+            send(chatId, "Для Дня " + plan.dayType() + " пока нет упражнений.");
+            return;
+        }
+
+        var response = new StringBuilder("📅 ")
+                .append(plan.date().format(DateTimeFormatter.ofPattern("dd.MM.yyyy")))
+                .append("\n💪 День ").append(plan.dayType())
+                .append(": ").append(day.get().getName()).append("\n\n");
+
+        for (var exercise : exercises) {
+            long setCount = fitnessDataService.getProgramSetCount(exercise.getId());
+            response.append(exercise.getExerciseOrder()).append(". ")
+                    .append(exercise.getExerciseName());
+            if (setCount > 0) response.append(" — ").append(setCount).append(" подхода");
+            response.append("\n");
+        }
+
+        send(chatId, response.toString());
     }
 
     private void saveFitnessGoal(long chatId, String goalText) {
