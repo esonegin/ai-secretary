@@ -3,9 +3,11 @@ package ai.personal.secretary.service;
 import ai.personal.secretary.model.FitnessGoal;
 import ai.personal.secretary.model.TrainingProgram;
 import ai.personal.secretary.model.TrainingProgramDay;
+import ai.personal.secretary.model.TrainingProgramExercise;
 import ai.personal.secretary.model.TrainingSession;
 import ai.personal.secretary.repository.FitnessGoalRepository;
 import ai.personal.secretary.repository.TrainingProgramDayRepository;
+import ai.personal.secretary.repository.TrainingProgramExerciseRepository;
 import ai.personal.secretary.repository.TrainingProgramRepository;
 import ai.personal.secretary.repository.TrainingSessionRepository;
 import ai.personal.secretary.repository.UserProfileRepository;
@@ -26,6 +28,7 @@ public class FitnessDataService {
     private final FitnessGoalRepository fitnessGoalRepository;
     private final TrainingProgramRepository trainingProgramRepository;
     private final TrainingProgramDayRepository trainingProgramDayRepository;
+    private final TrainingProgramExerciseRepository trainingProgramExerciseRepository;
     private final UserProfileRepository userProfileRepository;
 
     public List<TrainingSession> getWorkouts(Long userId) {
@@ -65,5 +68,13 @@ public class FitnessDataService {
 
     public Optional<TrainingProgramDay> getProgramDay(Long programId, String dayType) {
         return trainingProgramDayRepository.findByProgramIdAndDayType(programId, dayType);
+    }
+
+    public List<TrainingProgramExercise> getProgramExercises(Long userId, String dayType) {
+        return getActiveProgram(userId)
+                .flatMap(program -> getProgramDay(program.getId(), dayType))
+                .map(day -> trainingProgramExerciseRepository
+                        .findByProgramDayIdOrderByExerciseOrder(day.getId()))
+                .orElseGet(List::of);
     }
 }

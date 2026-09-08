@@ -4,8 +4,10 @@ import ai.personal.secretary.model.TrainingSession;
 import ai.personal.secretary.model.FitnessGoal;
 import ai.personal.secretary.model.TrainingProgram;
 import ai.personal.secretary.model.TrainingProgramDay;
+import ai.personal.secretary.model.TrainingProgramExercise;
 import ai.personal.secretary.repository.FitnessGoalRepository;
 import ai.personal.secretary.repository.TrainingProgramDayRepository;
+import ai.personal.secretary.repository.TrainingProgramExerciseRepository;
 import ai.personal.secretary.repository.TrainingProgramRepository;
 import ai.personal.secretary.repository.TrainingSessionRepository;
 import ai.personal.secretary.repository.UserProfileRepository;
@@ -39,6 +41,9 @@ class FitnessDataServiceTest {
 
     @Mock
     private TrainingProgramDayRepository trainingProgramDayRepository;
+
+    @Mock
+    private TrainingProgramExerciseRepository trainingProgramExerciseRepository;
 
     @Mock
     private UserProfileRepository userProfileRepository;
@@ -146,5 +151,34 @@ class FitnessDataServiceTest {
 
         assertSame(day, result);
         verify(trainingProgramDayRepository).findByProgramIdAndDayType(programId, dayType);
+    }
+
+    @Test
+    void getProgramExercisesReturnsExercisesForActiveProgramDay() {
+        Long userId = 1L;
+        String dayType = "1";
+        TrainingProgram program = TrainingProgram.builder().id(10L).build();
+        TrainingProgramDay day = TrainingProgramDay.builder().id(20L).build();
+        List<TrainingProgramExercise> exercises = List.of(new TrainingProgramExercise());
+        when(trainingProgramRepository.findFirstByUserIdAndStatusOrderByValidFromDescCreatedAtDesc(userId, "ACTIVE"))
+                .thenReturn(Optional.of(program));
+        when(trainingProgramDayRepository.findByProgramIdAndDayType(10L, dayType)).thenReturn(Optional.of(day));
+        when(trainingProgramExerciseRepository.findByProgramDayIdOrderByExerciseOrder(20L))
+                .thenReturn(exercises);
+
+        List<TrainingProgramExercise> result = fitnessDataService.getProgramExercises(userId, dayType);
+
+        assertSame(exercises, result);
+        verify(trainingProgramExerciseRepository).findByProgramDayIdOrderByExerciseOrder(20L);
+    }
+
+    @Test
+    void getProgramExercisesReturnsEmptyListWhenThereIsNoActiveProgram() {
+        when(trainingProgramRepository.findFirstByUserIdAndStatusOrderByValidFromDescCreatedAtDesc(1L, "ACTIVE"))
+                .thenReturn(Optional.empty());
+
+        List<TrainingProgramExercise> result = fitnessDataService.getProgramExercises(1L, "1");
+
+        org.junit.jupiter.api.Assertions.assertTrue(result.isEmpty());
     }
 }
