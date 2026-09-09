@@ -2,6 +2,9 @@ spring:
   application:
     name: ai-coach
 
+  config:
+    import: optional:file:.env[.properties]
+
   datasource:
     url: jdbc:postgresql://127.0.0.1:5432/ai_secretary
     username: postgres
