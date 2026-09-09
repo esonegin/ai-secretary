@@ -27,13 +27,19 @@ class WorkoutAnalystIntegrationTest {
 
         assertNotNull(analysis);
 
-        System.out.println("=== OBSERVATIONS ===");
-        analysis.observations().forEach(System.out::println);
+        System.out.println("=== EXERCISE ANALYSIS ===");
+        analysis.exercises().forEach(exercise -> {
+            System.out.printf(
+                    "%d. %s — trend=%s, confidence=%s%n",
+                    exercise.order(),
+                    exercise.name(),
+                    exercise.trend(),
+                    exercise.confidence()
+            );
+            System.out.println(exercise.note());
+        });
 
-        System.out.println("=== PROGRESSION SIGNALS ===");
-        analysis.progressionSignals().forEach(System.out::println);
-
-        System.out.println("=== RECOMMENDATIONS ===");
-        analysis.recommendations().forEach(System.out::println);
+        System.out.println("=== GENERAL OBSERVATIONS ===");
+        analysis.generalObservations().forEach(System.out::println);
     }
 }
