@@ -18,4 +18,7 @@ public interface TrainingSessionRepository extends JpaRepository<TrainingSession
 
     Optional<TrainingSession> findByUserIdAndWorkoutDateAndDayType(
             Long userId, LocalDate workoutDate, String dayType);
+
+    List<TrainingSession> findTop3ByUserIdAndDayTypeAndWorkoutDateBeforeOrderByWorkoutDateDesc(
+            Long userId, String dayType, LocalDate workoutDate);
 }
