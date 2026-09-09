@@ -98,7 +98,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
 
     private static final Long USER_ID = 2L;
     private static final Pattern FITNESS_PLAN_PATTERN = Pattern.compile(
-            ".*\\b(\\d{2}\\.\\d{2}\\.\\d{4})\\b.*\\bдень\\s+([123])\\b.*",
+            ".*?(\\d{2}\\.\\d{2}\\.\\d{4}).*?день\\s+([123]).*",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private static final List<String> PROFILE_STEPS = List.of(
             "birth_date", "weight", "height", "activity", "health");
@@ -740,6 +740,8 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             send(chatId, "Сначала зафиксируй основную цель в тренировках: /fitness");
             return;
         }
+
+        fitnessDataService.startWorkout(USER_ID, plan.date(), plan.dayType());
 
         var program = fitnessDataService.getActiveProgram(USER_ID);
         if (program.isEmpty()) {

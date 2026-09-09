@@ -5,16 +5,14 @@ import ai.personal.secretary.model.TrainingProgram;
 import ai.personal.secretary.model.TrainingProgramDay;
 import ai.personal.secretary.model.TrainingProgramExercise;
 import ai.personal.secretary.model.TrainingSession;
-import ai.personal.secretary.repository.FitnessGoalRepository;
-import ai.personal.secretary.repository.TrainingProgramDayRepository;
-import ai.personal.secretary.repository.TrainingProgramExerciseRepository;
-import ai.personal.secretary.repository.TrainingProgramRepository;
-import ai.personal.secretary.repository.TrainingProgramSetRepository;
-import ai.personal.secretary.repository.TrainingSessionRepository;
-import ai.personal.secretary.repository.UserProfileRepository;
+import ai.personal.secretary.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ai.personal.secretary.model.TrainingExercise;
+import ai.personal.secretary.model.TrainingSet;
+import ai.personal.secretary.repository.TrainingExerciseRepository;
+import ai.personal.secretary.repository.TrainingSetRepository;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -32,6 +30,8 @@ public class FitnessDataService {
     private final TrainingProgramExerciseRepository trainingProgramExerciseRepository;
     private final TrainingProgramSetRepository trainingProgramSetRepository;
     private final UserProfileRepository userProfileRepository;
+    private final TrainingExerciseRepository trainingExerciseRepository;
+    private final TrainingSetRepository trainingSetRepository;
 
     public List<TrainingSession> getWorkouts(Long userId) {
         return trainingSessionRepository.findByUserIdOrderByWorkoutDateDesc(userId);
@@ -82,5 +82,60 @@ public class FitnessDataService {
 
     public long getProgramSetCount(Long programExerciseId) {
         return trainingProgramSetRepository.countByProgramExerciseId(programExerciseId);
+    }
+
+    @Transactional
+    public TrainingSession startWorkout(Long userId, LocalDate workoutDate, String dayType) {
+        var existing = trainingSessionRepository
+                .findByUserIdAndWorkoutDateAndDayType(userId, workoutDate, dayType);
+
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        var user = userProfileRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
+
+        var program = getActiveProgram(userId)
+                .orElseThrow(() -> new IllegalStateException("Active training program not found"));
+
+        var day = getProgramDay(program.getId(), dayType)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Training day not found: " + dayType));
+
+        var exercises = trainingProgramExerciseRepository
+                .findByProgramDayIdOrderByExerciseOrder(day.getId());
+
+        if (exercises.isEmpty()) {
+            throw new IllegalStateException("Training program day has no exercises");
+        }
+
+        var session = trainingSessionRepository.save(TrainingSession.builder()
+                .user(user)
+                .workoutDate(workoutDate)
+                .dayType(dayType)
+                .build());
+
+        for (var programExercise : exercises) {
+            var trainingExercise = trainingExerciseRepository.save(
+                    TrainingExercise.builder()
+                            .session(session)
+                            .exerciseOrder(programExercise.getExerciseOrder())
+                            .exerciseName(programExercise.getExerciseName())
+                            .exerciseVariant(programExercise.getExerciseVariant())
+                            .build());
+
+            long setCount = trainingProgramSetRepository
+                    .countByProgramExerciseId(programExercise.getId());
+
+            for (int setNumber = 1; setNumber <= setCount; setNumber++) {
+                trainingSetRepository.save(TrainingSet.builder()
+                        .exercise(trainingExercise)
+                        .setNumber(setNumber)
+                        .loadMode("TOTAL")
+                        .build());
+            }
+        }
+
+        return session;
     }
 }
