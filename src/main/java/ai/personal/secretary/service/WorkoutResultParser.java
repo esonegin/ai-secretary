@@ -5,10 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-/**
- * @author onegines
- * @date 09.09.2026
- */
+
 public class WorkoutResultParser {
 
     private static final Pattern EXERCISE_PATTERN = Pattern.compile(
@@ -16,9 +13,6 @@ public class WorkoutResultParser {
 
     private static final Pattern WEIGHT_AND_REPS_PATTERN = Pattern.compile(
             "(\\d+(?:[.,]\\d+)?)\\s*кг\\s*[×xх*]\\s*(\\d+)");
-
-    private static final Pattern REPS_PATTERN = Pattern.compile(
-            "(?<![\\d.,])\\d+(?:\\s*[–-]\\s*\\d+)?(?![\\d.,])");
 
     public WorkoutResult parse(String text) {
         var exercises = new ArrayList<ExerciseResult>();
@@ -51,36 +45,18 @@ public class WorkoutResultParser {
             return List.of();
         }
 
-        if ("stretching".equalsIgnoreCase(setsText.trim())) {
-            return List.of(new SetResult(null, null, "STRETCHING"));
+        String normalized = setsText.trim();
+
+        if ("mobility".equalsIgnoreCase(normalized)
+                || "stretching".equalsIgnoreCase(normalized)) {
+            return List.of(new SetResult(
+                    null,
+                    null,
+                    "MOBILITY"
+            ));
         }
 
-        var weightedSets = parseWeightedSets(setsText);
-        if (!weightedSets.isEmpty()) {
-            return weightedSets;
-        }
-
-        var repsOnly = new ArrayList<SetResult>();
-
-        for (String part : setsText.split(",")) {
-            Matcher matcher = REPS_PATTERN.matcher(part.trim());
-
-            if (matcher.find()) {
-                String repsText = matcher.group().replaceAll("\\s+", "");
-
-                if (repsText.contains("-") || repsText.contains("–")) {
-                    continue;
-                }
-
-                repsOnly.add(new SetResult(
-                        null,
-                        Integer.parseInt(repsText),
-                        "BODYWEIGHT"
-                ));
-            }
-        }
-
-        return repsOnly;
+        return parseWeightedSets(setsText);
     }
 
     private List<SetResult> parseWeightedSets(String setsText) {
@@ -104,22 +80,15 @@ public class WorkoutResultParser {
         return result;
     }
 
-    public record WorkoutResult(
-            List<ExerciseResult> exercises
-    ) {
-    }
+    public record WorkoutResult(List<ExerciseResult> exercises) {}
 
     public record ExerciseResult(
             int exerciseOrder,
             String exerciseName,
-            List<SetResult> sets
-    ) {
-    }
+            List<SetResult> sets) {}
 
     public record SetResult(
             BigDecimal weightKg,
             Integer actualReps,
-            String loadMode
-    ) {
-    }
+            String loadMode) {}
 }
