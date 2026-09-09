@@ -8,6 +8,7 @@ import ai.personal.secretary.service.ActivityService;
 import ai.personal.secretary.service.CoachService;
 import ai.personal.secretary.service.DomainRouterService;
 import ai.personal.secretary.service.DomainService;
+import ai.personal.secretary.service.FitnessDataService;
 import ai.personal.secretary.service.PublishService;
 import ai.personal.secretary.service.StatsService;
 import ai.personal.secretary.service.StravaService;
@@ -32,6 +33,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 @Component
 @Slf4j
@@ -49,6 +51,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     private final PublishService publishService;
     private final StatsService statsService;
     private final StravaService stravaService;
+    private final FitnessDataService fitnessDataService;
 
     @Value("${telegram.bot.channel-id:0}")
     private String channelId;
@@ -71,6 +74,8 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     private final Set<Long> pendingGoalCheck = ConcurrentHashMap.newKeySet();
     // chatId → ждём тему для ежедневного поста
     private final Set<Long> pendingDailyPost = ConcurrentHashMap.newKeySet();
+    // chatId → ждём основной fitness goal
+    private final Set<Long> pendingFitnessGoal = ConcurrentHashMap.newKeySet();
 
     // ─── Rate Limiter ─────────────────────────────────────────────────────────
     private final Map<Long, java.util.Deque<Long>> rateLimitMap = new ConcurrentHashMap<>();
@@ -92,6 +97,9 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     public void setPendingDailyPost(Long chatId)  { pendingDailyPost.add(chatId); }
 
     private static final Long USER_ID = 2L;
+    private static final Pattern FITNESS_PLAN_PATTERN = Pattern.compile(
+            ".*?(\\d{2}\\.\\d{2}\\.\\d{4}).*?день\\s+([123]).*",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private static final List<String> PROFILE_STEPS = List.of(
             "birth_date", "weight", "height", "activity", "health");
 
@@ -109,7 +117,8 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             UserProfileRepository userProfileRepository,
             PublishService publishService,
             StatsService statsService,
-            StravaService stravaService) {
+            StravaService stravaService,
+            FitnessDataService fitnessDataService) {
 
         this.botToken        = botToken;
         this.telegramClient  = new OkHttpTelegramClient(botToken);
@@ -122,6 +131,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         this.publishService  = publishService;
         this.statsService    = statsService;
         this.stravaService   = stravaService;
+        this.fitnessDataService = fitnessDataService;
 
         // Регистрируем callback — коуч комментирует новые тренировки из Strava
         stravaService.setOnNewActivities(this::notifyNewStravaActivities);
@@ -190,6 +200,11 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             return;
         }
 
+        if (pendingFitnessGoal.remove(chatId)) {
+            saveFitnessGoal(chatId, text);
+            return;
+        }
+
         // Ответ на check по целям (от scheduler)
         if (pendingGoalCheck.remove(chatId)) {
             handleGoalCheckResponse(chatId, text);
@@ -220,12 +235,31 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             return;
         }
 
-        if (text.startsWith("/")) {
-            handleCommand(chatId, text);
-        } else {
-            handleChat(chatId, text);
+        parseFitnessPlan(text).ifPresentOrElse(
+                plan -> handleFitnessPlan(chatId, plan),
+                () -> {
+                    if (text.startsWith("/")) {
+                        handleCommand(chatId, text);
+                    } else {
+                        handleChat(chatId, text);
+                    }
+                });
+    }
+
+    static Optional<FitnessPlanRequest> parseFitnessPlan(String text) {
+        var matcher = FITNESS_PLAN_PATTERN.matcher(text);
+        if (!matcher.matches()) return Optional.empty();
+
+        try {
+            return Optional.of(new FitnessPlanRequest(
+                    LocalDate.parse(matcher.group(1), DateTimeFormatter.ofPattern("dd.MM.yyyy")),
+                    matcher.group(2)));
+        } catch (DateTimeParseException e) {
+            return Optional.empty();
         }
     }
+
+    record FitnessPlanRequest(LocalDate date, String dayType) { }
 
     // ─── Команды ──────────────────────────────────────────────────────────────
 
@@ -246,6 +280,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             case "/domains"      -> onDomains(chatId);
             case "/free"         -> onFree(chatId);
             case "/goals"        -> onGoals(chatId);
+            case "/fitness"      -> onFitness(chatId);
             case "/log"          -> onLog(chatId, command);
             case "/summary"      -> onSummary(chatId);
             case "/help"         -> onHelp(chatId);
@@ -673,6 +708,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             /domains — выбрать направление
             /free — авто-режим
             /goals — активные цели
+            /fitness — основная цель в тренировках
             /progress — прогресс по целям за 2 недели
             /targets — прогресс по недельным целям тренировок
             /week — сводка текущей недели
@@ -687,6 +723,68 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
 
             Просто *пиши* — и я разберусь 💬
             """);
+    }
+
+    private void onFitness(long chatId) {
+        if (fitnessDataService.getActiveGoal(USER_ID).isPresent()) {
+            send(chatId, "🎯 Основная цель в тренировках уже сохранена.");
+            return;
+        }
+
+        pendingFitnessGoal.add(chatId);
+        send(chatId, "Какая у тебя основная цель в тренировках?");
+    }
+
+    private void handleFitnessPlan(long chatId, FitnessPlanRequest plan) {
+        if (fitnessDataService.getActiveGoal(USER_ID).isEmpty()) {
+            send(chatId, "Сначала зафиксируй основную цель в тренировках: /fitness");
+            return;
+        }
+
+        fitnessDataService.startWorkout(USER_ID, plan.date(), plan.dayType());
+
+        var program = fitnessDataService.getActiveProgram(USER_ID);
+        if (program.isEmpty()) {
+            send(chatId, "Активная тренировочная программа пока не найдена.");
+            return;
+        }
+
+        var day = fitnessDataService.getProgramDay(program.get().getId(), plan.dayType());
+        if (day.isEmpty()) {
+            send(chatId, "День " + plan.dayType() + " в активной программе не найден.");
+            return;
+        }
+
+        var exercises = fitnessDataService.getProgramExercises(USER_ID, plan.dayType());
+        if (exercises.isEmpty()) {
+            send(chatId, "Для Дня " + plan.dayType() + " пока нет упражнений.");
+            return;
+        }
+
+        var response = new StringBuilder("📅 ")
+                .append(plan.date().format(DateTimeFormatter.ofPattern("dd.MM.yyyy")))
+                .append("\n💪 День ").append(plan.dayType())
+                .append(": ").append(day.get().getName()).append("\n\n");
+
+        for (var exercise : exercises) {
+            long setCount = fitnessDataService.getProgramSetCount(exercise.getId());
+            response.append(exercise.getExerciseOrder()).append(". ")
+                    .append(exercise.getExerciseName());
+            if (setCount > 0) response.append(" — ").append(setCount).append(" подхода");
+            response.append("\n");
+        }
+
+        send(chatId, response.toString());
+    }
+
+    private void saveFitnessGoal(long chatId, String goalText) {
+        try {
+            fitnessDataService.saveGoal(USER_ID, goalText);
+            send(chatId, "✅ Цель в тренировках сохранена!");
+        } catch (Exception e) {
+            log.error("Failed to save fitness goal: {}", e.getMessage(), e);
+            send(chatId, "❌ Не удалось сохранить цель. Попробуй ещё раз: /fitness");
+        }
     }
 
     // ─── Обработка ответов от scheduler ──────────────────────────────────────
