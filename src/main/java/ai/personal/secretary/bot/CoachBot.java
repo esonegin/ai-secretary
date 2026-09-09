@@ -96,7 +96,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     private static final Long USER_ID = 2L;
     private static final Pattern FITNESS_PLAN_PATTERN = Pattern.compile(
             ".*?(\\d{2}\\.\\d{2}\\.\\d{4}).*?день\\s+([123]).*",
-            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE | Pattern.DOTALL);
 
     private static final Pattern BODY_WEIGHT_PATTERN = Pattern.compile(
             "собственный\\s+вес\\s+(\\d+(?:[.,]\\d+)?)\\s*кг",
@@ -262,7 +262,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         try {
             return Optional.of(new FitnessPlanRequest(
                     LocalDate.parse(matcher.group(1), DateTimeFormatter.ofPattern("dd.MM.yyyy")),
-                    matcher.group(2)));
+                    "DAY_" + matcher.group(2)));
         } catch (DateTimeParseException e) {
             return Optional.empty();
         }

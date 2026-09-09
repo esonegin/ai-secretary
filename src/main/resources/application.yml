@@ -16,8 +16,8 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
-ai:
-  openai:
+  ai:
+   openai:
     api-key: ${OPENAI_API_KEY}
     chat:
       options:

@@ -168,8 +168,7 @@ public class FitnessDataService {
 
         var session = trainingSessionRepository
                 .findByUserIdAndWorkoutDateAndDayType(userId, workoutDate, dayType)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Training session not found: " + workoutDate + ", day " + dayType));
+                .orElseGet(() -> startWorkout(userId, workoutDate, dayType));
 
         if (bodyWeightKg != null) {
             session.setBodyWeightKg(bodyWeightKg);

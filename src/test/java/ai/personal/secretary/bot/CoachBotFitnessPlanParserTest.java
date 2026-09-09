@@ -16,7 +16,7 @@ class CoachBotFitnessPlanParserTest {
 
         assertTrue(result.isPresent());
         assertEquals(LocalDate.of(2026, 9, 7), result.get().date());
-        assertEquals("2", result.get().dayType());
+        assertEquals("DAY_2", result.get().dayType());
     }
 
     @Test
