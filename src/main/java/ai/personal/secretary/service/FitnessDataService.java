@@ -157,4 +157,59 @@ public class FitnessDataService {
 
         return trainingSetRepository.save(trainingSet);
     }
+
+    @Transactional
+    public TrainingSession recordWorkoutResult(
+            Long userId,
+            LocalDate workoutDate,
+            String dayType,
+            BigDecimal bodyWeightKg,
+            WorkoutResultParser.WorkoutResult result) {
+
+        var session = trainingSessionRepository
+                .findByUserIdAndWorkoutDateAndDayType(userId, workoutDate, dayType)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Training session not found: " + workoutDate + ", day " + dayType));
+
+        if (bodyWeightKg != null) {
+            session.setBodyWeightKg(bodyWeightKg);
+        }
+
+        var trainingExercises = trainingExerciseRepository
+                .findBySessionIdOrderByExerciseOrder(session.getId());
+
+        var resultByOrder = result.exercises().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        WorkoutResultParser.ExerciseResult::exerciseOrder,
+                        java.util.function.Function.identity()));
+
+        for (var trainingExercise : trainingExercises) {
+            var exerciseResult = resultByOrder.get(trainingExercise.getExerciseOrder());
+
+            if (exerciseResult == null) {
+                continue;
+            }
+
+            var trainingSets = trainingSetRepository
+                    .findByExerciseIdOrderBySetNumber(trainingExercise.getId());
+
+            if (trainingSets.size() != exerciseResult.sets().size()) {
+                throw new IllegalArgumentException(
+                        "Set count mismatch for exercise " + trainingExercise.getExerciseOrder()
+                                + ": expected " + trainingSets.size()
+                                + ", received " + exerciseResult.sets().size());
+            }
+
+            for (int i = 0; i < trainingSets.size(); i++) {
+                var trainingSet = trainingSets.get(i);
+                var setResult = exerciseResult.sets().get(i);
+
+                trainingSet.setWeightKg(setResult.weightKg());
+                trainingSet.setActualReps(setResult.actualReps());
+                trainingSet.setLoadMode(setResult.loadMode());
+            }
+        }
+
+        return trainingSessionRepository.save(session);
+    }
 }

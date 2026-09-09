@@ -16,18 +16,14 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
-  ai:
-    # Chat — через OpenRouter (поддерживает gpt-4o, работает из РФ)
-    openai:
-      api-key: ${OPENAI_API_KEY}
-      base-url: https://openrouter.ai/api
-      chat:
-        options:
-          model: nvidia/nemotron-3-ultra-550b-a55b:free
-          max-tokens: 1500
-          temperature: 0.7
-      # Embedding через OpenRouter отключён — он не поддерживает /v1/embeddings
-      # Используем отдельный бин в AiConfig.java с прямым OpenAI ключом
+ai:
+  openai:
+    api-key: ${OPENAI_API_KEY}
+    chat:
+      options:
+        model: gpt-4o-mini
+        max-tokens: 1500
+        temperature: 0.7
 
     vectorstore:
       pgvector:

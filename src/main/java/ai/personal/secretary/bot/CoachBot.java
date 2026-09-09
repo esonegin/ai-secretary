@@ -4,14 +4,7 @@ import ai.personal.secretary.model.Domain;
 import ai.personal.secretary.model.UserProfile;
 import ai.personal.secretary.repository.DomainRepository;
 import ai.personal.secretary.repository.UserProfileRepository;
-import ai.personal.secretary.service.ActivityService;
-import ai.personal.secretary.service.CoachService;
-import ai.personal.secretary.service.DomainRouterService;
-import ai.personal.secretary.service.DomainService;
-import ai.personal.secretary.service.FitnessDataService;
-import ai.personal.secretary.service.PublishService;
-import ai.personal.secretary.service.StatsService;
-import ai.personal.secretary.service.StravaService;
+import ai.personal.secretary.service.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -35,6 +28,9 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
+import java.math.BigDecimal;
+import ai.personal.secretary.service.WorkoutResultParser;
+
 @Component
 @Slf4j
 public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUpdateConsumer {
@@ -52,6 +48,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     private final StatsService statsService;
     private final StravaService stravaService;
     private final FitnessDataService fitnessDataService;
+    private final WorkoutResultParser workoutResultParser;
 
     @Value("${telegram.bot.channel-id:0}")
     private String channelId;
@@ -100,6 +97,10 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     private static final Pattern FITNESS_PLAN_PATTERN = Pattern.compile(
             ".*?(\\d{2}\\.\\d{2}\\.\\d{4}).*?день\\s+([123]).*",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+
+    private static final Pattern BODY_WEIGHT_PATTERN = Pattern.compile(
+            "собственный\\s+вес\\s+(\\d+(?:[.,]\\d+)?)\\s*кг",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private static final List<String> PROFILE_STEPS = List.of(
             "birth_date", "weight", "height", "activity", "health");
 
@@ -132,6 +133,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         this.statsService    = statsService;
         this.stravaService   = stravaService;
         this.fitnessDataService = fitnessDataService;
+        this.workoutResultParser = new WorkoutResultParser();
 
         // Регистрируем callback — коуч комментирует новые тренировки из Strava
         stravaService.setOnNewActivities(this::notifyNewStravaActivities);
@@ -232,6 +234,13 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         // Логирование активности
         if (pendingActivity.containsKey(chatId)) {
             logActivityFromInput(chatId, text);
+            return;
+        }
+
+        var workoutResult = parseWorkoutResult(text);
+
+        if (workoutResult.isPresent()) {
+            handleWorkoutResult(chatId, workoutResult.get());
             return;
         }
 
@@ -1102,4 +1111,59 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     public void sendToChat(Long chatId, String text) {
         send(chatId, text);
     }
+
+    private Optional<WorkoutResultRequest> parseWorkoutResult(String text) {
+        var plan = parseFitnessPlan(text);
+
+        if (plan.isEmpty()) {
+            return Optional.empty();
+        }
+
+        var result = workoutResultParser.parse(text);
+
+        // Результат должен содержать хотя бы одно упражнение с подходами.
+        if (result.exercises().stream().noneMatch(exercise -> !exercise.sets().isEmpty())) {
+            return Optional.empty();
+        }
+
+        BigDecimal bodyWeightKg = null;
+
+        var bodyWeightMatcher = BODY_WEIGHT_PATTERN.matcher(text);
+        if (bodyWeightMatcher.find()) {
+            bodyWeightKg = new BigDecimal(
+                    bodyWeightMatcher.group(1).replace(',', '.')
+            );
+        }
+
+        return Optional.of(new WorkoutResultRequest(
+                plan.get().date(),
+                plan.get().dayType(),
+                bodyWeightKg,
+                result
+        ));
+    }
+
+    private void handleWorkoutResult(long chatId, WorkoutResultRequest request) {
+        try {
+            fitnessDataService.recordWorkoutResult(
+                    USER_ID,
+                    request.date(),
+                    request.dayType(),
+                    request.bodyWeightKg(),
+                    request.result()
+            );
+
+            send(chatId, "✅ Результат тренировки сохранён.");
+        } catch (Exception e) {
+            log.error("Failed to record workout result: {}", e.getMessage(), e);
+            send(chatId, "❌ Не удалось сохранить результат тренировки: " + e.getMessage());
+        }
+    }
+
+    record WorkoutResultRequest(
+            LocalDate date,
+            String dayType,
+            BigDecimal bodyWeightKg,
+            WorkoutResultParser.WorkoutResult result
+    ) {}
 }

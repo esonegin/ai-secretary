@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 public class WorkoutResultParser {
 
     private static final Pattern EXERCISE_PATTERN = Pattern.compile(
-            "^\\s*(\\d+)\\.\\s*(.+?)(?:\\s*:\\s*(.+))?\\s*$");
+            "^\\s*(\\d+)\\.\\s*(.+?)\\s*:\\s*(.+)\\s*$");
 
     private static final Pattern WEIGHT_AND_REPS_PATTERN = Pattern.compile(
             "(\\d+(?:[.,]\\d+)?)\\s*кг\\s*[×xх*]\\s*(\\d+)");
