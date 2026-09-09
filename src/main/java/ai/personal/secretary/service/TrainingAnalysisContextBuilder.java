@@ -92,13 +92,50 @@ public class TrainingAnalysisContextBuilder {
                 })
                 .toList();
 
+        var history = fitnessDataService
+                .getPreviousWorkouts(userId, dayType, workoutDate)
+                .stream()
+                .map(previousSession -> {
+                    var historicalExercises = fitnessDataService
+                            .getTrainingExercises(previousSession.getId())
+                            .stream()
+                            .map(exercise -> {
+                                var actualSets = fitnessDataService
+                                        .getTrainingSets(exercise.getId())
+                                        .stream()
+                                        .map(set -> new TrainingAnalysisContext.ActualSetContext(
+                                                set.getSetNumber(),
+                                                set.getWeightKg(),
+                                                set.getActualReps(),
+                                                set.getLoadMode()
+                                        ))
+                                        .toList();
+
+                                return new TrainingAnalysisContext.HistoricalExerciseContext(
+                                        exercise.getExerciseOrder(),
+                                        exercise.getExerciseName(),
+                                        actualSets
+                                );
+                            })
+                            .toList();
+
+                    return new TrainingAnalysisContext.HistoricalWorkoutContext(
+                            previousSession.getWorkoutDate(),
+                            previousSession.getDayType(),
+                            previousSession.getBodyWeightKg(),
+                            historicalExercises
+                    );
+                })
+                .toList();
+
         return new TrainingAnalysisContext(
                 session.getWorkoutDate(),
                 session.getDayType(),
                 session.getBodyWeightKg(),
                 goal,
                 programContext,
-                exercises
+                exercises,
+                history
         );
     }
 }
