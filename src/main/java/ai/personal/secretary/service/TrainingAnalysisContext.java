@@ -10,7 +10,8 @@ public record TrainingAnalysisContext(
         BigDecimal bodyWeightKg,
         String goal,
         ProgramContext program,
-        List<ExerciseContext> exercises) {
+        List<ExerciseContext> exercises,
+        List<HistoricalWorkoutContext> history) {
 
     public record ProgramContext(
             String name,
@@ -38,5 +39,18 @@ public record TrainingAnalysisContext(
             BigDecimal weightKg,
             Integer actualReps,
             String loadMode) {
+    }
+
+    public record HistoricalWorkoutContext(
+            LocalDate workoutDate,
+            String dayType,
+            BigDecimal bodyWeightKg,
+            List<HistoricalExerciseContext> exercises) {
+    }
+
+    public record HistoricalExerciseContext(
+            Integer order,
+            String name,
+            List<ActualSetContext> actualSets) {
     }
 }
