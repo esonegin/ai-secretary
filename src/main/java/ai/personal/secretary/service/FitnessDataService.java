@@ -14,6 +14,7 @@ import ai.personal.secretary.model.TrainingSet;
 import ai.personal.secretary.repository.TrainingExerciseRepository;
 import ai.personal.secretary.repository.TrainingSetRepository;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -137,5 +138,23 @@ public class FitnessDataService {
         }
 
         return session;
+    }
+
+    @Transactional
+    public TrainingSet recordSetResult(
+            Long userId,
+            Long trainingSetId,
+            BigDecimal weightKg,
+            Integer actualReps) {
+
+        var trainingSet = trainingSetRepository
+                .findByIdAndUserId(trainingSetId, userId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Training set not found for user: " + trainingSetId));
+
+        trainingSet.setWeightKg(weightKg);
+        trainingSet.setActualReps(actualReps);
+
+        return trainingSetRepository.save(trainingSet);
     }
 }
