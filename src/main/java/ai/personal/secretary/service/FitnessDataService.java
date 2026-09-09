@@ -50,6 +50,16 @@ public class FitnessDataService {
                         userId, workoutDate, dayType);
     }
 
+    public List<TrainingSession> getPreviousWorkouts(
+            Long userId,
+            String dayType,
+            LocalDate workoutDate) {
+
+        return trainingSessionRepository
+                .findTop3ByUserIdAndDayTypeAndWorkoutDateBeforeOrderByWorkoutDateDesc(
+                        userId, dayType, workoutDate);
+    }
+
     public Optional<FitnessGoal> getActiveGoal(Long userId) {
         return fitnessGoalRepository
                 .findFirstByUserIdAndStatusOrderByPriorityDescCreatedAtDesc(
