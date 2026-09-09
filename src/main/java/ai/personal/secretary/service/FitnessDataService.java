@@ -1,12 +1,6 @@
 package ai.personal.secretary.service;
 
-import ai.personal.secretary.model.FitnessGoal;
-import ai.personal.secretary.model.TrainingExercise;
-import ai.personal.secretary.model.TrainingProgram;
-import ai.personal.secretary.model.TrainingProgramDay;
-import ai.personal.secretary.model.TrainingProgramExercise;
-import ai.personal.secretary.model.TrainingSession;
-import ai.personal.secretary.model.TrainingSet;
+import ai.personal.secretary.model.*;
 import ai.personal.secretary.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -105,6 +99,21 @@ public class FitnessDataService {
                                 .findByProgramDayIdOrderByExerciseOrder(
                                         day.getId()))
                 .orElseGet(List::of);
+    }
+
+    public List<TrainingExercise> getTrainingExercises(Long sessionId) {
+        return trainingExerciseRepository
+                .findBySessionIdOrderByExerciseOrder(sessionId);
+    }
+
+    public List<TrainingSet> getTrainingSets(Long exerciseId) {
+        return trainingSetRepository
+                .findByExerciseIdOrderBySetNumber(exerciseId);
+    }
+
+    public List<TrainingProgramSet> getProgramSets(Long programExerciseId) {
+        return trainingProgramSetRepository
+                .findByProgramExerciseIdOrderBySetNumber(programExerciseId);
     }
 
     public long getProgramSetCount(Long programExerciseId) {
