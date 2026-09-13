@@ -50,7 +50,6 @@ class TrainingPlannerIntegrationTest {
                     set.repsMax(),
                     set.loadMode()
             ));
-            System.out.println("   " + exercise.rationale());
         });
 
         System.out.println("=== GENERAL NOTES ===");
