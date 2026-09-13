@@ -1,12 +1,14 @@
 package ai.personal.secretary.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class TrainingPlanner {
 
     private final ChatClient.Builder chatClientBuilder;
@@ -19,6 +21,24 @@ public class TrainingPlanner {
         var options = OpenAiChatOptions.builder()
                 .maxTokens(3000)
                 .build();
+
+        String contextText = context.toString();
+        String analysisText = analysis.toString();
+        String userPrompt = """
+                Данные для планирования:
+
+                %s
+
+                Анализ:
+                %s
+                """.formatted(contextText, analysisText);
+
+        log.info(
+                "TrainingPlanner prompt sizes: context={} chars, analysis={} chars, user={} chars",
+                contextText.length(),
+                analysisText.length(),
+                userPrompt.length()
+        );
 
         return chatClient.prompt()
                 .options(options)
@@ -63,14 +83,7 @@ public class TrainingPlanner {
                         - Верни все упражнения программы.
                         - Верни полный и валидный JSON TrainingPlanProposal.
                         """)
-                .user("""
-                        Данные для планирования:
-
-                        %s
-
-                        Анализ:
-                        %s
-                        """.formatted(context, analysis))
+                .user(userPrompt)
                 .call()
                 .entity(TrainingPlanProposal.class);
     }
