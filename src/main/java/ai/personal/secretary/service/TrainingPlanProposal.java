@@ -11,8 +11,7 @@ public record TrainingPlanProposal(
             Integer order,
             String name,
             String variant,
-            List<SetProposal> sets,
-            String rationale) {
+            List<SetProposal> sets) {
     }
 
     public record SetProposal(
