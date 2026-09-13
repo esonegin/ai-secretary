@@ -19,7 +19,7 @@ public class TrainingPlanner {
         ChatClient chatClient = chatClientBuilder.build();
 
         var options = OpenAiChatOptions.builder()
-                .maxTokens(1200)
+                .maxTokens(1500)
                 .build();
 
         String contextText = context.toString();
@@ -54,7 +54,7 @@ public class TrainingPlanner {
 
                         Верни TrainingPlanProposal.
 
-                        Для каждого упражнения верни только:
+                        Для каждого упражнения верни:
                         - order;
                         - name;
                         - variant;
@@ -71,7 +71,6 @@ public class TrainingPlanner {
                         а weightKg, repsMin и repsMax = null.
 
                         generalNotes должен содержать не более 2 коротких предложений.
-                        rationale для каждого упражнения — не более одной короткой фразы.
 
                         Правила:
                         - Сохраняй порядок, упражнения и варианты активной программы.
