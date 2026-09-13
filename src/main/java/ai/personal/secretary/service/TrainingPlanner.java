@@ -19,7 +19,7 @@ public class TrainingPlanner {
         ChatClient chatClient = chatClientBuilder.build();
 
         var options = OpenAiChatOptions.builder()
-                .maxTokens(3000)
+                .maxTokens(1200)
                 .build();
 
         String contextText = context.toString();
