@@ -7,7 +7,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
-@SpringBootTest
+@SpringBootTest(properties = "spring.ai.retry.max-attempts=1")
 class TrainingPlannerIntegrationTest {
 
     @Autowired
