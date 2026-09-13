@@ -1,14 +1,17 @@
 package ai.personal.secretary.service;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class TrainingPlanner {
 
     private final ChatClient.Builder chatClientBuilder;
@@ -19,71 +22,105 @@ public class TrainingPlanner {
         ChatClient chatClient = chatClientBuilder.build();
 
         var options = OpenAiChatOptions.builder()
-                .maxTokens(1500)
+                .maxTokens(1200)
                 .build();
 
-        String contextText = context.toString();
-        String analysisText = analysis.toString();
-        String userPrompt = """
-                Данные для планирования:
-
-                %s
-
-                Анализ:
-                %s
-                """.formatted(contextText, analysisText);
-
-        log.info(
-                "TrainingPlanner prompt sizes: context={} chars, analysis={} chars, user={} chars",
-                contextText.length(),
-                analysisText.length(),
-                userPrompt.length()
-        );
-
-        return chatClient.prompt()
+        TrainingPlanDecision decision = chatClient.prompt()
                 .options(options)
                 .system("""
                         Ты — планировщик силовых тренировок.
 
-                        Составь предложение следующей тренировки на основании:
-                        - активной программы;
-                        - цели пользователя;
-                        - истории предыдущих тренировок этого же дня;
-                        - фактически выполненной тренировки;
-                        - WorkoutAnalysis.
+                        Прими решение по следующей тренировке на основании программы,
+                        цели, истории этого дня, фактически выполненной тренировки и WorkoutAnalysis.
 
-                        Верни TrainingPlanProposal.
-
-                        Для каждого упражнения верни:
+                        Верни TrainingPlanDecision.
+                        Для каждого упражнения программы верни только:
                         - order;
-                        - name;
-                        - variant;
-                        - sets.
+                        - action = KEEP или CHANGE;
+                        - sets только если action = CHANGE.
 
-                        Для каждого силового подхода:
-                        - setNumber;
-                        - weightKg;
-                        - repsMin;
-                        - repsMax;
-                        - loadMode = TOTAL.
-
-                        Для mobility-упражнений используй loadMode = MOBILITY,
-                        а weightKg, repsMin и repsMax = null.
-
-                        generalNotes должен содержать не более 2 коротких предложений.
+                        Для CHANGE верни полный набор подходов упражнения.
+                        Силовой подход: setNumber, weightKg, repsMin, repsMax, loadMode=TOTAL.
+                        Mobility: setNumber, weightKg=null, repsMin=null, repsMax=null, loadMode=MOBILITY.
 
                         Правила:
-                        - Сохраняй порядок, упражнения и варианты активной программы.
-                        - Используй историю и WorkoutAnalysis для выбора нагрузки.
+                        - Не меняй порядок, упражнения и варианты программы.
+                        - KEEP означает оставить текущие запланированные подходы без изменений.
+                        - CHANGE используй только при обоснованной необходимости по истории и анализу.
                         - Учитывай одновременно вес и повторения.
                         - Не делай резких изменений без достаточного основания.
-                        - При недостатке данных сохраняй последнюю подтверждённую нагрузку.
-                        - Не выдумывай данные.
-                        - Верни все упражнения программы.
-                        - Верни полный и валидный JSON TrainingPlanProposal.
+                        - При недостатке данных используй KEEP.
+                        - Не выдумывай упражнения и данные.
+                        - Верни ровно по одному решению на каждое упражнение программы.
+                        - generalNotes: не более 2 коротких предложений.
+                        - Верни полный валидный JSON TrainingPlanDecision.
                         """)
-                .user(userPrompt)
+                .user("""
+                        ПРОГРАММА И ТЕКУЩАЯ ТРЕНИРОВКА:
+                        %s
+
+                        АНАЛИЗ:
+                        %s
+                        """.formatted(context, analysis))
                 .call()
-                .entity(TrainingPlanProposal.class);
+                .entity(TrainingPlanDecision.class);
+
+        return mergeDecision(context, decision);
+    }
+
+    private TrainingPlanProposal mergeDecision(
+            TrainingAnalysisContext context,
+            TrainingPlanDecision decision) {
+        Map<Integer, TrainingAnalysisContext.ExerciseContext> programExercises =
+                context.exercises().stream()
+                        .collect(Collectors.toMap(
+                                TrainingAnalysisContext.ExerciseContext::order,
+                                Function.identity()));
+
+        List<TrainingPlanProposal.ExerciseProposal> exercises =
+                decision.exercises().stream()
+                        .map(item -> {
+                            TrainingAnalysisContext.ExerciseContext source = programExercises.get(item.order());
+                            if (source == null) {
+                                throw new IllegalArgumentException(
+                                        "AI returned unknown exercise order: " + item.order());
+                            }
+
+                            List<TrainingPlanProposal.SetProposal> sets;
+                            if ("CHANGE".equalsIgnoreCase(item.action())) {
+                                sets = item.sets().stream()
+                                        .map(set -> new TrainingPlanProposal.SetProposal(
+                                                set.setNumber(),
+                                                set.weightKg(),
+                                                set.repsMin(),
+                                                set.repsMax(),
+                                                set.loadMode()))
+                                        .toList();
+                            } else {
+                                sets = source.plannedSets().stream()
+                                        .map(set -> new TrainingPlanProposal.SetProposal(
+                                                set.setNumber(),
+                                                set.weightKg(),
+                                                set.repsMin(),
+                                                set.repsMax(),
+                                                set.loadMode()))
+                                        .toList();
+                            }
+
+                            return new TrainingPlanProposal.ExerciseProposal(
+                                    source.order(),
+                                    source.name(),
+                                    source.variant(),
+                                    sets);
+                        })
+                        .toList();
+
+        if (exercises.size() != context.exercises().size()) {
+            throw new IllegalArgumentException(
+                    "AI returned " + exercises.size()
+                            + " exercises, expected " + context.exercises().size());
+        }
+
+        return new TrainingPlanProposal(exercises, decision.generalNotes());
     }
 }
