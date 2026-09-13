@@ -2,6 +2,7 @@ package ai.personal.secretary.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -16,6 +17,8 @@ public class TrainingPlanner {
         ChatClient chatClient = chatClientBuilder.build();
 
         return chatClient.prompt()
+                .options(OpenAiChatOptions.builder()
+                        .maxTokens(3000))
                 .system("""
                         Ты — планировщик силовых тренировок.
 
@@ -60,6 +63,10 @@ public class TrainingPlanner {
                         - Не выдумывай историю, цели, упражнения или результаты.
                         - Не ссылайся на внешние данные, которых нет во входном контексте.
                         - Не объясняй внутренний процесс рассуждения.
+                        - Верни все упражнения из входной программы, не сокращай список.
+                        - Для каждого упражнения верни все необходимые подходы.
+                        - Не обрывай JSON. Убедись, что результат полностью закрывает
+                          все массивы и объекты перед завершением ответа.
                         - Не возвращай текст вне структуры TrainingPlanProposal.
                         """)
                 .user("""
