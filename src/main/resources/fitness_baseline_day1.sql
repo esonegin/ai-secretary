@@ -11,36 +11,33 @@ WITH target AS (
       AND d.day_type = '1'
       AND p.user_id = (SELECT id FROM user_profiles ORDER BY id LIMIT 1)
 ),
-seed(exercise_order, weight_kg, reps_min, reps_max, load_mode) AS (
+seed(exercise_order, set_number, weight_kg, reps_min, reps_max, load_mode) AS (
     VALUES
-        (1, 92.50, 10, 10, 'TOTAL'),
-        (2, 102.50, 8, 8, 'TOTAL'),
-        (3, 60.00, 10, 12, 'TOTAL'),
-        (4, 50.00, 10, 12, 'TOTAL'),
-        (5, 30.50, 8, 10, 'TOTAL'),
-        (6, 60.00, 10, 12, 'TOTAL'),
-        (7, 65.00, 15, 15, 'TOTAL'),
-        (8, 25.00, 20, 20, 'TOTAL'),
-        (9, NULL, 12, 12, 'MOBILITY')
-),
-sets AS (
-    SELECT t.id AS exercise_id,
-           s.exercise_order,
-           gs.set_number,
-           s.weight_kg,
-           s.reps_min,
-           s.reps_max,
-           s.load_mode
-    FROM target t
-    JOIN seed s ON s.exercise_order = t.exercise_order
-    CROSS JOIN LATERAL generate_series(
-        1,
-        CASE s.exercise_order
-            WHEN 8 THEN 2
-            WHEN 9 THEN 2
-            ELSE 3
-        END
-    ) AS gs(set_number)
+        (1, 1, 92.50, 10, 10, 'TOTAL'),
+        (1, 2, 92.50, 10, 10, 'TOTAL'),
+        (1, 3, 92.50, 10, 10, 'TOTAL'),
+        (2, 1, 102.50, 8, 8, 'TOTAL'),
+        (2, 2, 100.00, 8, 10, 'TOTAL'),
+        (2, 3, 100.00, 8, 10, 'TOTAL'),
+        (3, 1, 60.00, 10, 12, 'TOTAL'),
+        (3, 2, 60.00, 10, 12, 'TOTAL'),
+        (3, 3, 60.00, 10, 12, 'TOTAL'),
+        (4, 1, 50.00, 10, 12, 'TOTAL'),
+        (4, 2, 50.00, 10, 12, 'TOTAL'),
+        (4, 3, 50.00, 10, 12, 'TOTAL'),
+        (5, 1, 30.50, 8, 10, 'TOTAL'),
+        (5, 2, 30.50, 8, 10, 'TOTAL'),
+        (5, 3, 30.50, 8, 10, 'TOTAL'),
+        (6, 1, 60.00, 10, 12, 'TOTAL'),
+        (6, 2, 60.00, 10, 12, 'TOTAL'),
+        (6, 3, 60.00, 10, 12, 'TOTAL'),
+        (7, 1, 65.00, 15, 15, 'TOTAL'),
+        (7, 2, 65.00, 15, 15, 'TOTAL'),
+        (7, 3, 65.00, 15, 15, 'TOTAL'),
+        (8, 1, 25.00, 20, 20, 'TOTAL'),
+        (8, 2, 25.00, 20, 20, 'TOTAL'),
+        (9, 1, NULL, 12, 12, 'MOBILITY'),
+        (9, 2, NULL, 12, 12, 'MOBILITY')
 )
 INSERT INTO training_program_sets (
     program_exercise_id,
@@ -50,8 +47,9 @@ INSERT INTO training_program_sets (
     planned_reps_min,
     planned_reps_max
 )
-SELECT exercise_id, set_number, weight_kg, load_mode, reps_min, reps_max
-FROM sets
+SELECT t.id, s.set_number, s.weight_kg, s.load_mode, s.reps_min, s.reps_max
+FROM target t
+JOIN seed s ON s.exercise_order = t.exercise_order
 ON CONFLICT (program_exercise_id, set_number) DO UPDATE
 SET weight_kg = EXCLUDED.weight_kg,
     load_mode = EXCLUDED.load_mode,
