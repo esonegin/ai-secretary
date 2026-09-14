@@ -126,10 +126,7 @@ public class TrainingPlanner {
                                         "AI returned unknown exercise order: " + item.order());
                             }
 
-                            boolean mobility = source.plannedSets().stream()
-                                    .anyMatch(set -> "MOBILITY".equalsIgnoreCase(set.loadMode()))
-                                    || source.actualSets().stream()
-                                    .anyMatch(set -> "MOBILITY".equalsIgnoreCase(set.loadMode()));
+                            boolean mobility = isMobility(source);
 
                             if (mobility) {
                                 List<TrainingPlanProposal.SetProposal> sets = source.plannedSets().stream()
@@ -155,6 +152,19 @@ public class TrainingPlanner {
         return new TrainingPlanProposal(exercises, decision.generalNotes());
     }
 
+    private boolean isMobility(TrainingAnalysisContext.ExerciseContext source) {
+        boolean mobilityLoadMode = source.plannedSets().stream()
+                .anyMatch(set -> "MOBILITY".equalsIgnoreCase(set.loadMode()))
+                || source.actualSets().stream()
+                .anyMatch(set -> "MOBILITY".equalsIgnoreCase(set.loadMode()));
+
+        String name = source.name() == null ? "" : source.name().toLowerCase();
+        boolean mobilityName = name.contains("wall slides")
+                || name.contains("растяжка");
+
+        return mobilityLoadMode || mobilityName;
+    }
+
     private List<TrainingPlanProposal.SetProposal> buildSets(
             TrainingAnalysisContext context,
             TrainingAnalysisContext.ExerciseContext source,
@@ -163,9 +173,9 @@ public class TrainingPlanner {
             return source.plannedSets().stream()
                     .map(set -> new TrainingPlanProposal.SetProposal(
                             set.setNumber(),
-                            set.weightKg() != null ? set.weightKg() : historicalWeight(context, source, set.setNumber()),
-                            set.repsMin() != null ? set.repsMin() : historicalReps(context, source, set.setNumber()),
-                            set.repsMax() != null ? set.repsMax() : historicalReps(context, source, set.setNumber()),
+                            set.weightKg() != null ? set.weightKg() : historicalWeight(context, source),
+                            set.repsMin() != null ? set.repsMin() : historicalRepsMin(context, source),
+                            set.repsMax() != null ? set.repsMax() : historicalRepsMax(context, source),
                             set.loadMode()))
                     .toList();
         }
@@ -188,17 +198,17 @@ public class TrainingPlanner {
                             ? decision.weightKg()
                             : sourceSet.weightKg() != null
                             ? sourceSet.weightKg()
-                            : historicalWeight(context, source, i + 1),
+                            : historicalWeight(context, source),
                     decision.repsMin() != null
                             ? decision.repsMin()
                             : sourceSet.repsMin() != null
                             ? sourceSet.repsMin()
-                            : historicalReps(context, source, i + 1),
+                            : historicalRepsMin(context, source),
                     decision.repsMax() != null
                             ? decision.repsMax()
                             : sourceSet.repsMax() != null
                             ? sourceSet.repsMax()
-                            : historicalReps(context, source, i + 1),
+                            : historicalRepsMax(context, source),
                     sourceSet.loadMode()));
         }
         return result;
@@ -206,43 +216,35 @@ public class TrainingPlanner {
 
     private BigDecimal historicalWeight(
             TrainingAnalysisContext context,
-            TrainingAnalysisContext.ExerciseContext source,
-            int setNumber) {
-        return historicalSet(context, source, setNumber)
-                .map(TrainingAnalysisContext.ActualSetContext::weightKg)
-                .orElseGet(() -> lastHistoricalSet(context, source)
-                        .map(TrainingAnalysisContext.ActualSetContext::weightKg)
-                        .orElse(null));
-    }
-
-    private Integer historicalReps(
-            TrainingAnalysisContext context,
-            TrainingAnalysisContext.ExerciseContext source,
-            int setNumber) {
-        return historicalSet(context, source, setNumber)
-                .map(TrainingAnalysisContext.ActualSetContext::actualReps)
-                .orElseGet(() -> lastHistoricalSet(context, source)
-                        .map(TrainingAnalysisContext.ActualSetContext::actualReps)
-                        .orElse(null));
-    }
-
-    private Optional<TrainingAnalysisContext.ActualSetContext> historicalSet(
-            TrainingAnalysisContext context,
-            TrainingAnalysisContext.ExerciseContext source,
-            int setNumber) {
+            TrainingAnalysisContext.ExerciseContext source) {
         return latestHistoricalExercise(context, source)
                 .flatMap(exercise -> exercise.actualSets().stream()
-                        .filter(set -> set.setNumber() != null && set.setNumber() == setNumber)
-                        .findFirst());
+                        .map(TrainingAnalysisContext.ActualSetContext::weightKg)
+                        .filter(weight -> weight != null)
+                        .reduce((first, second) -> second))
+                .orElse(null);
     }
 
-    private Optional<TrainingAnalysisContext.ActualSetContext> lastHistoricalSet(
+    private Integer historicalRepsMin(
             TrainingAnalysisContext context,
             TrainingAnalysisContext.ExerciseContext source) {
         return latestHistoricalExercise(context, source)
                 .flatMap(exercise -> exercise.actualSets().stream()
-                        .filter(set -> set.weightKg() != null || set.actualReps() != null)
-                        .reduce((first, second) -> second));
+                        .map(TrainingAnalysisContext.ActualSetContext::actualReps)
+                        .filter(reps -> reps != null)
+                        .min(Integer::compareTo))
+                .orElse(null);
+    }
+
+    private Integer historicalRepsMax(
+            TrainingAnalysisContext context,
+            TrainingAnalysisContext.ExerciseContext source) {
+        return latestHistoricalExercise(context, source)
+                .flatMap(exercise -> exercise.actualSets().stream()
+                        .map(TrainingAnalysisContext.ActualSetContext::actualReps)
+                        .filter(reps -> reps != null)
+                        .max(Integer::compareTo))
+                .orElse(null);
     }
 
     private Optional<TrainingAnalysisContext.HistoricalExerciseContext> latestHistoricalExercise(
