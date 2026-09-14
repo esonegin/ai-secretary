@@ -15,11 +15,13 @@ import java.util.stream.Collectors;
 public class TrainingPlanner {
 
     private final ChatClient.Builder chatClientBuilder;
+    private final TrainingStateCalculator trainingStateCalculator;
 
     public TrainingPlanProposal propose(
             TrainingAnalysisContext context,
             WorkoutAnalysis analysis) {
         ChatClient chatClient = chatClientBuilder.build();
+        TrainingState state = trainingStateCalculator.calculate(context);
 
         var options = OpenAiChatOptions.builder()
                 .maxTokens(1200)
@@ -31,7 +33,11 @@ public class TrainingPlanner {
                         Ты — планировщик силовых тренировок.
 
                         Прими решение по следующей тренировке на основании программы,
-                        цели, истории этого дня, фактически выполненной тренировки и WorkoutAnalysis.
+                        цели, истории этого дня, фактически выполненной тренировки,
+                        WorkoutAnalysis и вычисленного TrainingState.
+
+                        TrainingState — это детерминированно рассчитанное состояние тренинга.
+                        Используй его как источник числовых фактов и не переопределяй его своими догадками.
 
                         Верни TrainingPlanDecision.
                         Для каждого упражнения программы верни только:
@@ -46,8 +52,11 @@ public class TrainingPlanner {
                         Правила:
                         - Не меняй порядок, упражнения и варианты программы.
                         - KEEP означает оставить текущие запланированные подходы без изменений.
-                        - CHANGE используй только при обоснованной необходимости по истории и анализу.
-                        - Учитывай одновременно вес и повторения.
+                        - CHANGE используй только при обоснованной необходимости по TrainingState,
+                          истории и WorkoutAnalysis.
+                        - Учитывай одновременно вес, повторения, объём и фазу тренировочного блока.
+                        - Не увеличивай нагрузку автоматически после каждой тренировки.
+                        - Учитывай длительность блока и текущую неделю при решении о прогрессии.
                         - Не делай резких изменений без достаточного основания.
                         - При недостатке данных используй KEEP.
                         - Не выдумывай упражнения и данные.
@@ -59,9 +68,12 @@ public class TrainingPlanner {
                         ПРОГРАММА И ТЕКУЩАЯ ТРЕНИРОВКА:
                         %s
 
-                        АНАЛИЗ:
+                        WORKOUT ANALYSIS:
                         %s
-                        """.formatted(context, analysis))
+
+                        TRAINING STATE:
+                        %s
+                        """.formatted(context, analysis, state))
                 .call()
                 .entity(TrainingPlanDecision.class);
 
