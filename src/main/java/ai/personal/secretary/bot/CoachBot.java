@@ -49,6 +49,8 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     private final StravaService stravaService;
     private final FitnessDataService fitnessDataService;
     private final WorkoutResultParser workoutResultParser;
+    private final TrainingAnalysisContextBuilder trainingContextBuilder;
+    private final TrainingPlanner trainingPlanner;
 
     @Value("${telegram.bot.channel-id:0}")
     private String channelId;
@@ -119,7 +121,9 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             PublishService publishService,
             StatsService statsService,
             StravaService stravaService,
-            FitnessDataService fitnessDataService) {
+            FitnessDataService fitnessDataService,
+            TrainingAnalysisContextBuilder trainingContextBuilder,
+            TrainingPlanner trainingPlanner) {
 
         this.botToken        = botToken;
         this.telegramClient  = new OkHttpTelegramClient(botToken);
@@ -133,6 +137,8 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         this.statsService    = statsService;
         this.stravaService   = stravaService;
         this.fitnessDataService = fitnessDataService;
+        this.trainingContextBuilder = trainingContextBuilder;
+        this.trainingPlanner = trainingPlanner;
         this.workoutResultParser = new WorkoutResultParser();
 
         // Регистрируем callback — коуч комментирует новые тренировки из Strava
@@ -750,8 +756,6 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             return;
         }
 
-        fitnessDataService.startWorkout(USER_ID, plan.date(), plan.dayType());
-
         var program = fitnessDataService.getActiveProgram(USER_ID);
         if (program.isEmpty()) {
             send(chatId, "Активная тренировочная программа пока не найдена.");
@@ -770,20 +774,66 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             return;
         }
 
-        var response = new StringBuilder("📅 ")
-                .append(plan.date().format(DateTimeFormatter.ofPattern("dd.MM.yyyy")))
-                .append("\n💪 День ").append(plan.dayType())
-                .append(": ").append(day.get().getName()).append("\n\n");
+        try {
+            fitnessDataService.startWorkout(USER_ID, plan.date(), plan.dayType());
 
-        for (var exercise : exercises) {
-            long setCount = fitnessDataService.getProgramSetCount(exercise.getId());
-            response.append(exercise.getExerciseOrder()).append(". ")
-                    .append(exercise.getExerciseName());
-            if (setCount > 0) response.append(" — ").append(setCount).append(" подхода");
-            response.append("\n");
+            var context = trainingContextBuilder.build(
+                    USER_ID,
+                    plan.date(),
+                    plan.dayType());
+
+            var proposal = trainingPlanner.propose(context);
+
+            var response = new StringBuilder("📅 ")
+                    .append(plan.date().format(DateTimeFormatter.ofPattern("dd.MM.yyyy")))
+                    .append("\n💪 День ").append(plan.dayType())
+                    .append(": ").append(day.get().getName())
+                    .append("\n\n");
+
+            for (var exercise : proposal.exercises()) {
+                response.append(exercise.order())
+                        .append(". ")
+                        .append(exercise.name());
+
+                if (exercise.variant() != null && !exercise.variant().isBlank()) {
+                    response.append(" (").append(exercise.variant()).append(")");
+                }
+
+                response.append("\n");
+
+                for (var set : exercise.sets()) {
+                    response.append("   ")
+                            .append(set.setNumber())
+                            .append(". ");
+
+                    if ("MOBILITY".equalsIgnoreCase(set.loadMode())) {
+                        response.append("mobility");
+                    } else {
+                        response.append(set.weightKg())
+                                .append(" кг × ")
+                                .append(set.repsMin())
+                                .append("-")
+                                .append(set.repsMax());
+                    }
+
+                    response.append("\n");
+                }
+
+                response.append("\n");
+            }
+
+            if (proposal.generalNotes() != null && !proposal.generalNotes().isEmpty()) {
+                response.append("📝 ");
+                response.append(String.join(" ", proposal.generalNotes()));
+            }
+
+            send(chatId, response.toString());
+        } catch (Exception e) {
+            log.error("Failed to build training plan for {} {}: {}",
+                    plan.date(), plan.dayType(), e.getMessage(), e);
+
+            send(chatId, "❌ Не удалось построить план тренировки: " + e.getMessage());
         }
-
-        send(chatId, response.toString());
     }
 
     private void saveFitnessGoal(long chatId, String goalText) {
