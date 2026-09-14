@@ -101,6 +101,31 @@ CREATE TABLE IF NOT EXISTS training_programs (
 CREATE INDEX IF NOT EXISTS idx_training_programs_user_status
     ON training_programs(user_id, status, valid_from DESC, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS training_blocks (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES user_profiles(id),
+    training_program_id BIGINT NOT NULL REFERENCES training_programs(id),
+    name VARCHAR(150) NOT NULL,
+    goal VARCHAR(30) NOT NULL,
+    phase VARCHAR(30) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    started_at DATE NOT NULL,
+    planned_weeks INTEGER,
+    deload_week INTEGER,
+    notes TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    CHECK (planned_weeks IS NULL OR planned_weeks > 0),
+    CHECK (deload_week IS NULL OR deload_week > 0),
+    CHECK (planned_weeks IS NULL OR deload_week IS NULL OR deload_week <= planned_weeks)
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_blocks_user_status
+    ON training_blocks(user_id, status, started_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_training_blocks_program_status
+    ON training_blocks(training_program_id, status, started_at DESC);
+
 CREATE TABLE IF NOT EXISTS training_program_days (
     id BIGSERIAL PRIMARY KEY,
     program_id BIGINT NOT NULL REFERENCES training_programs(id) ON DELETE CASCADE,
