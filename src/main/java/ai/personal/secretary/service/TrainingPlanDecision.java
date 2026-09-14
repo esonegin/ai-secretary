@@ -10,14 +10,9 @@ public record TrainingPlanDecision(
     public record ExerciseDecision(
             Integer order,
             String action,
-            List<SetDecision> sets) {
-    }
-
-    public record SetDecision(
-            Integer setNumber,
             BigDecimal weightKg,
             Integer repsMin,
             Integer repsMax,
-            String loadMode) {
+            Integer setCount) {
     }
 }
