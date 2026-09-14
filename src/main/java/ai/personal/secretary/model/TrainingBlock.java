@@ -23,6 +23,11 @@ public class TrainingBlock {
     @ToString.Exclude
     private UserProfile user;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "training_program_id", nullable = false)
+    @ToString.Exclude
+    private TrainingProgram trainingProgram;
+
     @Column(nullable = false, length = 150)
     private String name;
 
@@ -31,6 +36,10 @@ public class TrainingBlock {
 
     @Column(nullable = false, length = 30)
     private String phase;
+
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private String status = "ACTIVE";
 
     @Column(name = "started_at", nullable = false)
     private LocalDate startedAt;
