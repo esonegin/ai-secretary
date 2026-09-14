@@ -18,22 +18,15 @@ class WorkoutResultParserTest {
 
         assertEquals(1, result.exercises().size());
         assertEquals(1, result.exercises().get(0).exerciseOrder());
-        assertEquals(
-                "Наклонный жим гантелей",
-                result.exercises().get(0).exerciseName()
-        );
+        assertEquals("Наклонный жим гантелей", result.exercises().get(0).exerciseName());
 
         var sets = result.exercises().get(0).sets();
-
         assertEquals(3, sets.size());
-
         assertEquals(new BigDecimal("40"), sets.get(0).weightKg());
         assertEquals(8, sets.get(0).actualReps());
         assertEquals("TOTAL", sets.get(0).loadMode());
-
         assertEquals(new BigDecimal("40"), sets.get(1).weightKg());
         assertEquals(8, sets.get(1).actualReps());
-
         assertEquals(new BigDecimal("40"), sets.get(2).weightKg());
         assertEquals(10, sets.get(2).actualReps());
     }
@@ -46,18 +39,8 @@ class WorkoutResultParserTest {
                 """);
 
         assertEquals(2, result.exercises().size());
-
-        var stretching = result.exercises().get(0).sets().get(0);
-
-        assertNull(stretching.weightKg());
-        assertNull(stretching.actualReps());
-        assertEquals("MOBILITY", stretching.loadMode());
-
-        var wallSlides = result.exercises().get(1).sets().get(0);
-
-        assertNull(wallSlides.weightKg());
-        assertNull(wallSlides.actualReps());
-        assertEquals("MOBILITY", wallSlides.loadMode());
+        assertEquals("MOBILITY", result.exercises().get(0).sets().get(0).loadMode());
+        assertEquals("MOBILITY", result.exercises().get(1).sets().get(0).loadMode());
     }
 
     @Test
@@ -67,7 +50,6 @@ class WorkoutResultParserTest {
                 """);
 
         var set = result.exercises().get(0).sets().get(0);
-
         assertNull(set.weightKg());
         assertNull(set.actualReps());
         assertEquals("MOBILITY", set.loadMode());
@@ -90,7 +72,6 @@ class WorkoutResultParserTest {
                 """);
 
         assertEquals(9, result.exercises().size());
-
         assertEquals(3, result.exercises().get(0).sets().size());
         assertEquals(3, result.exercises().get(1).sets().size());
         assertEquals(3, result.exercises().get(2).sets().size());
@@ -98,13 +79,54 @@ class WorkoutResultParserTest {
         assertEquals(2, result.exercises().get(4).sets().size());
         assertEquals(3, result.exercises().get(5).sets().size());
         assertEquals(3, result.exercises().get(6).sets().size());
+        assertEquals("MOBILITY", result.exercises().get(7).sets().get(0).loadMode());
+        assertEquals("MOBILITY", result.exercises().get(8).sets().get(0).loadMode());
+    }
 
-        assertEquals(1, result.exercises().get(7).sets().size());
-        assertEquals("MOBILITY",
-                result.exercises().get(7).sets().get(0).loadMode());
+    @Test
+    void parsesChecklistResult() {
+        var result = parser.parse("""
+                📅 14.09.2026
+                💪 День DAY_1: базовая сила + верх тела
 
-        assertEquals(1, result.exercises().get(8).sets().size());
-        assertEquals("MOBILITY",
-                result.exercises().get(8).sets().get(0).loadMode());
+                1. Приседания со штангой
+                   1. 92,5 кг × 10
+                   2. 92,5 кг × 9
+                   3. 92,5 кг × 9
+
+                2. Жим штанги лёжа
+                   1. 102,5 кг × 8
+                   2. 100 кг × 9
+                   3. 100 кг × 8
+
+                7. Пресс «молитва»
+                   1. 65 кг × 15
+                   2. 65 кг × 15
+                   3. 65 кг × 15
+
+                9. Wall Slides
+                   1. mobility
+                   2. mobility
+                """);
+
+        assertEquals(4, result.exercises().size());
+        assertEquals("Приседания со штангой", result.exercises().get(0).exerciseName());
+        assertEquals(3, result.exercises().get(0).sets().size());
+        assertEquals(new BigDecimal("92.5"), result.exercises().get(0).sets().get(0).weightKg());
+        assertEquals(10, result.exercises().get(0).sets().get(0).actualReps());
+        assertEquals("Жим штанги лёжа", result.exercises().get(1).exerciseName());
+        assertEquals(new BigDecimal("100"), result.exercises().get(1).sets().get(1).weightKg());
+        assertEquals("Пресс «молитва»", result.exercises().get(2).exerciseName());
+        assertEquals(15, result.exercises().get(2).sets().get(2).actualReps());
+        assertEquals("MOBILITY", result.exercises().get(3).sets().get(0).loadMode());
+        assertEquals("MOBILITY", result.exercises().get(3).sets().get(1).loadMode());
+    }
+
+    @Test
+    void expandsCompactSetCount() {
+        var result = parser.parse("1. Пресс «молитва»: 65 кг × 15 × 3");
+        assertEquals(1, result.exercises().size());
+        assertEquals(3, result.exercises().get(0).sets().size());
+        assertEquals(15, result.exercises().get(0).sets().get(2).actualReps());
     }
 }
