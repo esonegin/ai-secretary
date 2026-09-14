@@ -17,7 +17,17 @@ public class TrainingPlanner {
     private final ChatClient.Builder chatClientBuilder;
     private final TrainingStateCalculator trainingStateCalculator;
 
+    public TrainingPlanProposal propose(TrainingAnalysisContext context) {
+        return proposeInternal(context, null);
+    }
+
     public TrainingPlanProposal propose(
+            TrainingAnalysisContext context,
+            WorkoutAnalysis analysis) {
+        return proposeInternal(context, analysis);
+    }
+
+    private TrainingPlanProposal proposeInternal(
             TrainingAnalysisContext context,
             WorkoutAnalysis analysis) {
         ChatClient chatClient = chatClientBuilder.build();
@@ -27,54 +37,62 @@ public class TrainingPlanner {
                 .maxTokens(1200)
                 .build();
 
+        String systemPrompt = """
+                Ты — планировщик силовых тренировок.
+
+                Прими решение по следующей тренировке на основании программы,
+                цели, истории этого дня, фактически выполненной тренировки,
+                WorkoutAnalysis и вычисленного TrainingState.
+
+                Если WorkoutAnalysis отсутствует, это означает, что план строится
+                ДО начала тренировки. В этом случае actual sets текущей тренировки
+                могут быть пустыми; опирайся на план, историю и TrainingState.
+
+                TrainingState — детерминированный источник числовых фактов.
+                Не заменяй его догадками.
+
+                Для каждого упражнения верни:
+                - order;
+                - action: KEEP, PROGRESS, REGRESS, CHANGE_REPS, CHANGE_VOLUME или DELOAD;
+                - sets только если action не KEEP;
+                - для каждого подхода: setNumber, weightKg, repsMin, repsMax, loadMode.
+
+                Правила принятия решения:
+                - KEEP: текущий план уже адекватен, изменений не требуется.
+                - PROGRESS: есть достаточные основания для увеличения тренировочного стимула.
+                - REGRESS: текущая нагрузка чрезмерна или выполнение ухудшилось.
+                - CHANGE_REPS: меняй диапазон повторений без необходимости резко менять вес.
+                - CHANGE_VOLUME: меняй количество подходов, если это оправдано состоянием тренинга.
+                - DELOAD: снижай тренировочный стресс при необходимости восстановления или в запланированную разгрузочную неделю.
+                - Не увеличивай вес или объём автоматически после каждой тренировки.
+                - Прогрессия должна учитывать одновременно выполненные повторения, вес, объём,
+                  тренд упражнения, общую динамику тренировки и фазу блока.
+                - Учитывай currentWeek, plannedWeeks, deloadWeek, blockGoal и blockPhase.
+                - Если данных недостаточно для уверенного изменения, используй KEEP.
+                - Не меняй порядок, упражнения и варианты программы.
+                - Не выдумывай упражнения или отсутствующие факты.
+                - Для силовых подходов используй loadMode=TOTAL.
+                - Для mobility используй loadMode=MOBILITY и null для weightKg/repsMin/repsMax.
+                - Верни ровно по одному решению на каждое упражнение программы.
+                - generalNotes: не более 2 коротких предложений.
+                - Верни полный валидный JSON TrainingPlanDecision.
+                """;
+
+        String userPrompt = """
+                ПРОГРАММА И ТЕКУЩАЯ ТРЕНИРОВКА:
+                %s
+
+                WORKOUT ANALYSIS:
+                %s
+
+                TRAINING STATE:
+                %s
+                """.formatted(context, analysis == null ? "нет — тренировка ещё не выполнена" : analysis, state);
+
         TrainingPlanDecision decision = chatClient.prompt()
                 .options(options)
-                .system("""
-                        Ты — планировщик силовых тренировок.
-
-                        Прими решение по следующей тренировке на основании программы,
-                        цели, истории этого дня, фактически выполненной тренировки,
-                        WorkoutAnalysis и вычисленного TrainingState.
-
-                        TrainingState — детерминированный источник числовых фактов.
-                        Не заменяй его догадками.
-
-                        Для каждого упражнения верни:
-                        - order;
-                        - action: KEEP, PROGRESS, REGRESS, CHANGE_REPS, CHANGE_VOLUME или DELOAD;
-                        - sets только если action не KEEP;
-                        - для каждого подхода: setNumber, weightKg, repsMin, repsMax, loadMode.
-
-                        Правила принятия решения:
-                        - KEEP: текущий план уже адекватен, изменений не требуется.
-                        - PROGRESS: есть достаточные основания для увеличения тренировочного стимула.
-                        - REGRESS: текущая нагрузка чрезмерна или выполнение ухудшилось.
-                        - CHANGE_REPS: меняй диапазон повторений без необходимости резко менять вес.
-                        - CHANGE_VOLUME: меняй количество подходов, если это оправдано состоянием тренинга.
-                        - DELOAD: снижай тренировочный стресс при необходимости восстановления или в запланированную разгрузочную неделю.
-                        - Не увеличивай вес или объём автоматически после каждой тренировки.
-                        - Прогрессия должна учитывать одновременно выполненные повторения, вес, объём,
-                          тренд упражнения, общую динамику тренировки и фазу блока.
-                        - Учитывай currentWeek, plannedWeeks, deloadWeek, blockGoal и blockPhase.
-                        - Если данных недостаточно для уверенного изменения, используй KEEP.
-                        - Не меняй порядок, упражнения и варианты программы.
-                        - Не выдумывай упражнения или отсутствующие факты.
-                        - Для силовых подходов используй loadMode=TOTAL.
-                        - Для mobility используй loadMode=MOBILITY и null для weightKg/repsMin/repsMax.
-                        - Верни ровно по одному решению на каждое упражнение программы.
-                        - generalNotes: не более 2 коротких предложений.
-                        - Верни полный валидный JSON TrainingPlanDecision.
-                        """)
-                .user("""
-                        ПРОГРАММА И ТЕКУЩАЯ ТРЕНИРОВКА:
-                        %s
-
-                        WORKOUT ANALYSIS:
-                        %s
-
-                        TRAINING STATE:
-                        %s
-                        """.formatted(context, analysis, state))
+                .system(systemPrompt)
+                .user(userPrompt)
                 .call()
                 .entity(TrainingPlanDecision.class);
 
@@ -99,7 +117,9 @@ public class TrainingPlanner {
                                         "AI returned unknown exercise order: " + item.order());
                             }
 
-                            boolean mobility = source.actualSets().stream()
+                            boolean mobility = source.plannedSets().stream()
+                                    .anyMatch(set -> "MOBILITY".equalsIgnoreCase(set.loadMode()))
+                                    || source.actualSets().stream()
                                     .anyMatch(set -> "MOBILITY".equalsIgnoreCase(set.loadMode()));
 
                             List<TrainingPlanProposal.SetProposal> sets;
