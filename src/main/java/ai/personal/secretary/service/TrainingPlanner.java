@@ -5,6 +5,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -51,11 +52,15 @@ public class TrainingPlanner {
                 TrainingState — детерминированный источник числовых фактов.
                 Не заменяй его догадками.
 
-                Для каждого упражнения верни:
+                Для каждого упражнения верни только:
                 - order;
                 - action: KEEP, PROGRESS, REGRESS, CHANGE_REPS, CHANGE_VOLUME или DELOAD;
-                - sets только если action не KEEP;
-                - для каждого подхода: setNumber, weightKg, repsMin, repsMax, loadMode.
+                - weightKg, repsMin, repsMax, setCount — только если action не KEEP.
+
+                Поля изменения описывают общую новую схему упражнения:
+                - weightKg — новый вес для рабочих подходов; null означает сохранить текущие веса;
+                - repsMin/repsMax — новый диапазон повторений; null означает сохранить текущий диапазон;
+                - setCount — новое количество подходов; null означает сохранить количество подходов.
 
                 Правила принятия решения:
                 - KEEP: текущий план уже адекватен, изменений не требуется.
@@ -71,9 +76,11 @@ public class TrainingPlanner {
                 - Если данных недостаточно для уверенного изменения, используй KEEP.
                 - Не меняй порядок, упражнения и варианты программы.
                 - Не выдумывай упражнения или отсутствующие факты.
-                - Для силовых подходов используй loadMode=TOTAL.
-                - Для mobility используй loadMode=MOBILITY и null для weightKg/repsMin/repsMax.
+                - Для mobility всегда используй KEEP, если нет явной причины изменить количество подходов.
+                - Для mobility не задавай weightKg, repsMin или repsMax.
                 - Верни ровно по одному решению на каждое упражнение программы.
+                - Для KEEP все поля изменения должны быть null.
+                - Для DELOAD допустимо одновременно снизить вес, повторения и/или количество подходов.
                 - generalNotes: не более 2 коротких предложений.
                 - Верни полный валидный JSON TrainingPlanDecision.
                 """;
@@ -122,43 +129,18 @@ public class TrainingPlanner {
                                     || source.actualSets().stream()
                                     .anyMatch(set -> "MOBILITY".equalsIgnoreCase(set.loadMode()));
 
-                            List<TrainingPlanProposal.SetProposal> sets;
                             if (mobility) {
-                                sets = source.plannedSets().stream()
+                                List<TrainingPlanProposal.SetProposal> sets = source.plannedSets().stream()
                                         .map(set -> new TrainingPlanProposal.SetProposal(
                                                 set.setNumber(), null, null, null, "MOBILITY"))
                                         .toList();
-                            } else if ("KEEP".equalsIgnoreCase(item.action())) {
-                                sets = source.plannedSets().stream()
-                                        .map(set -> new TrainingPlanProposal.SetProposal(
-                                                set.setNumber(),
-                                                set.weightKg(),
-                                                set.repsMin(),
-                                                set.repsMax(),
-                                                set.loadMode()))
-                                        .toList();
-                            } else {
-                                if (item.sets() == null || item.sets().isEmpty()) {
-                                    throw new IllegalArgumentException(
-                                            "AI returned " + item.action()
-                                                    + " without sets for exercise order: " + item.order());
-                                }
-
-                                sets = item.sets().stream()
-                                        .map(set -> new TrainingPlanProposal.SetProposal(
-                                                set.setNumber(),
-                                                set.weightKg(),
-                                                set.repsMin(),
-                                                set.repsMax(),
-                                                set.loadMode()))
-                                        .toList();
+                                return new TrainingPlanProposal.ExerciseProposal(
+                                        source.order(), source.name(), source.variant(), sets);
                             }
 
+                            List<TrainingPlanProposal.SetProposal> sets = buildSets(source, item);
                             return new TrainingPlanProposal.ExerciseProposal(
-                                    source.order(),
-                                    source.name(),
-                                    source.variant(),
-                                    sets);
+                                    source.order(), source.name(), source.variant(), sets);
                         })
                         .toList();
 
@@ -169,5 +151,41 @@ public class TrainingPlanner {
         }
 
         return new TrainingPlanProposal(exercises, decision.generalNotes());
+    }
+
+    private List<TrainingPlanProposal.SetProposal> buildSets(
+            TrainingAnalysisContext.ExerciseContext source,
+            TrainingPlanDecision.ExerciseDecision decision) {
+        if ("KEEP".equalsIgnoreCase(decision.action())) {
+            return source.plannedSets().stream()
+                    .map(set -> new TrainingPlanProposal.SetProposal(
+                            set.setNumber(),
+                            set.weightKg(),
+                            set.repsMin(),
+                            set.repsMax(),
+                            set.loadMode()))
+                    .toList();
+        }
+
+        int originalSetCount = source.plannedSets().size();
+        int setCount = decision.setCount() != null ? decision.setCount() : originalSetCount;
+        if (setCount <= 0) {
+            throw new IllegalArgumentException(
+                    "AI returned invalid setCount for exercise order: " + source.order());
+        }
+
+        var result = new ArrayList<TrainingPlanProposal.SetProposal>(setCount);
+        for (int i = 0; i < setCount; i++) {
+            TrainingAnalysisContext.PlannedSetContext sourceSet = source.plannedSets().get(
+                    Math.min(i, originalSetCount - 1));
+
+            result.add(new TrainingPlanProposal.SetProposal(
+                    i + 1,
+                    decision.weightKg() != null ? decision.weightKg() : sourceSet.weightKg(),
+                    decision.repsMin() != null ? decision.repsMin() : sourceSet.repsMin(),
+                    decision.repsMax() != null ? decision.repsMax() : sourceSet.repsMax(),
+                    sourceSet.loadMode()));
+        }
+        return result;
     }
 }
