@@ -138,7 +138,7 @@ public class TrainingPlanner {
                                         source.order(), source.name(), source.variant(), sets);
                             }
 
-                            List<TrainingPlanProposal.SetProposal> sets = buildSets(source, item);
+                            List<TrainingPlanProposal.SetProposal> sets = buildSets(context, source, item);
                             return new TrainingPlanProposal.ExerciseProposal(
                                     source.order(), source.name(), source.variant(), sets);
                         })
@@ -154,15 +154,16 @@ public class TrainingPlanner {
     }
 
     private List<TrainingPlanProposal.SetProposal> buildSets(
+            TrainingAnalysisContext context,
             TrainingAnalysisContext.ExerciseContext source,
             TrainingPlanDecision.ExerciseDecision decision) {
         if ("KEEP".equalsIgnoreCase(decision.action())) {
             return source.plannedSets().stream()
                     .map(set -> new TrainingPlanProposal.SetProposal(
                             set.setNumber(),
-                            set.weightKg(),
-                            set.repsMin(),
-                            set.repsMax(),
+                            effectiveWeight(context, source, set),
+                            effectiveRepsMin(context, source, set),
+                            effectiveRepsMax(context, source, set),
                             set.loadMode()))
                     .toList();
         }
@@ -181,11 +182,71 @@ public class TrainingPlanner {
 
             result.add(new TrainingPlanProposal.SetProposal(
                     i + 1,
-                    decision.weightKg() != null ? decision.weightKg() : sourceSet.weightKg(),
-                    decision.repsMin() != null ? decision.repsMin() : sourceSet.repsMin(),
-                    decision.repsMax() != null ? decision.repsMax() : sourceSet.repsMax(),
+                    decision.weightKg() != null
+                            ? decision.weightKg()
+                            : effectiveWeight(context, source, sourceSet),
+                    decision.repsMin() != null
+                            ? decision.repsMin()
+                            : effectiveRepsMin(context, source, sourceSet),
+                    decision.repsMax() != null
+                            ? decision.repsMax()
+                            : effectiveRepsMax(context, source, sourceSet),
                     sourceSet.loadMode()));
         }
         return result;
+    }
+
+    private java.math.BigDecimal effectiveWeight(
+            TrainingAnalysisContext context,
+            TrainingAnalysisContext.ExerciseContext source,
+            TrainingAnalysisContext.PlannedSetContext plannedSet) {
+        if (plannedSet.weightKg() != null) {
+            return plannedSet.weightKg();
+        }
+        return findHistoricalSet(context, source, plannedSet.setNumber())
+                .map(TrainingAnalysisContext.ActualSetContext::weightKg)
+                .orElse(null);
+    }
+
+    private Integer effectiveRepsMin(
+            TrainingAnalysisContext context,
+            TrainingAnalysisContext.ExerciseContext source,
+            TrainingAnalysisContext.PlannedSetContext plannedSet) {
+        if (plannedSet.repsMin() != null) {
+            return plannedSet.repsMin();
+        }
+        return findHistoricalSet(context, source, plannedSet.setNumber())
+                .map(TrainingAnalysisContext.ActualSetContext::actualReps)
+                .orElse(null);
+    }
+
+    private Integer effectiveRepsMax(
+            TrainingAnalysisContext context,
+            TrainingAnalysisContext.ExerciseContext source,
+            TrainingAnalysisContext.PlannedSetContext plannedSet) {
+        if (plannedSet.repsMax() != null) {
+            return plannedSet.repsMax();
+        }
+        return findHistoricalSet(context, source, plannedSet.setNumber())
+                .map(TrainingAnalysisContext.ActualSetContext::actualReps)
+                .orElse(null);
+    }
+
+    private java.util.Optional<TrainingAnalysisContext.ActualSetContext> findHistoricalSet(
+            TrainingAnalysisContext context,
+            TrainingAnalysisContext.ExerciseContext source,
+            Integer setNumber) {
+        return context.history().stream()
+                .filter(workout -> workout.exercises().stream().anyMatch(exercise ->
+                        java.util.Objects.equals(exercise.order(), source.order())
+                                && java.util.Objects.equals(exercise.name(), source.name())))
+                .findFirst()
+                .flatMap(workout -> workout.exercises().stream()
+                        .filter(exercise -> java.util.Objects.equals(exercise.order(), source.order())
+                                && java.util.Objects.equals(exercise.name(), source.name()))
+                        .findFirst())
+                .flatMap(exercise -> exercise.actualSets().stream()
+                        .filter(set -> java.util.Objects.equals(set.setNumber(), setNumber))
+                        .findFirst());
     }
 }
