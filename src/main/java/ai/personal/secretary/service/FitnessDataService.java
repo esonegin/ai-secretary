@@ -160,17 +160,19 @@ public class FitnessDataService {
             var exerciseResult = resultByOrder.get(trainingExercise.getExerciseOrder());
             if (exerciseResult == null) continue;
             var trainingSets = trainingSetRepository.findByExerciseIdOrderBySetNumber(trainingExercise.getId());
-            boolean mobility = exerciseResult.sets().stream().allMatch(set -> "MOBILITY".equals(set.loadMode()));
+            boolean mobility = !exerciseResult.sets().isEmpty()
+                    && exerciseResult.sets().stream().allMatch(set -> "MOBILITY".equals(set.loadMode()));
 
             if (mobility) {
-                if (exerciseResult.sets().size() != 1) {
-                    throw new IllegalArgumentException("Mobility exercise must have exactly one result: "
+                if (exerciseResult.sets().size() > trainingSets.size()) {
+                    throw new IllegalArgumentException("Too many mobility results for exercise "
                             + trainingExercise.getExerciseOrder());
                 }
-                var trainingSet = trainingSets.get(0);
-                trainingSet.setWeightKg(null);
-                trainingSet.setActualReps(null);
-                trainingSet.setLoadMode("MOBILITY");
+                for (var trainingSet : trainingSets) {
+                    trainingSet.setWeightKg(null);
+                    trainingSet.setActualReps(null);
+                    trainingSet.setLoadMode("MOBILITY");
+                }
                 continue;
             }
 
