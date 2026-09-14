@@ -40,21 +40,14 @@ public class WorkoutResultParser {
             }
 
             Matcher setMatcher = WEIGHT_AND_REPS_PATTERN.matcher(payload);
-            if (setMatcher.find() && setMatcher.start() == 0) {
-                if (current != null) {
-                    current.sets.addAll(parseWeightedSets(payload));
-                }
-                continue;
-            }
-
-            if (isMobility(payload)) {
-                if (current != null) {
-                    current.sets.add(new SetResult(null, null, "MOBILITY"));
-                }
-                continue;
-            }
-
             if (setMatcher.find()) {
+                if (setMatcher.start() == 0) {
+                    if (current != null) {
+                        current.sets.addAll(parseWeightedSets(payload));
+                    }
+                    continue;
+                }
+
                 if (current != null) {
                     exercises.add(current.toResult());
                 }
@@ -63,6 +56,13 @@ public class WorkoutResultParser {
                         .trim();
                 current = new ExerciseResultBuilder(order, name);
                 current.sets.addAll(parseWeightedSets(payload.substring(setMatcher.start())));
+                continue;
+            }
+
+            if (isMobility(payload)) {
+                if (current != null) {
+                    current.sets.add(new SetResult(null, null, "MOBILITY"));
+                }
                 continue;
             }
 
