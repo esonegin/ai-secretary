@@ -117,10 +117,18 @@ public class FitnessDataService {
                     .session(session).exerciseOrder(programExercise.getExerciseOrder())
                     .exerciseName(programExercise.getExerciseName())
                     .exerciseVariant(programExercise.getExerciseVariant()).build());
-            long setCount = trainingProgramSetRepository.countByProgramExerciseId(programExercise.getId());
-            for (int setNumber = 1; setNumber <= setCount; setNumber++) {
+
+            var programSets = trainingProgramSetRepository.findByProgramExerciseIdOrderBySetNumber(programExercise.getId());
+            for (var programSet : programSets) {
                 trainingSetRepository.save(TrainingSet.builder()
-                        .exercise(trainingExercise).setNumber(setNumber).loadMode("TOTAL").build());
+                        .exercise(trainingExercise)
+                        .setNumber(programSet.getSetNumber())
+                        .weightKg(programSet.getWeightKg())
+                        .plannedRepsMin(programSet.getPlannedRepsMin())
+                        .plannedRepsMax(programSet.getPlannedRepsMax())
+                        .loadMode(programSet.getLoadMode())
+                        .notes(programSet.getNotes())
+                        .build());
             }
         }
         return session;
