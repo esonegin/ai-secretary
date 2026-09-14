@@ -22,6 +22,7 @@ spring:
   ai:
    openai:
     api-key: ${OPENAI_API_KEY}
+    timeout: 120s
     chat:
       options:
         model: gpt-4o-mini

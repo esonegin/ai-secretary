@@ -1134,7 +1134,7 @@ public class CoachBot implements SpringLongPollingBot, LongPollingSingleThreadUp
     private void send(long chatId, String text) {
         try {
             telegramClient.execute(SendMessage.builder()
-                    .chatId(chatId).text(text).parseMode("Markdown").build());
+                    .chatId(chatId).text(text).build());
         } catch (TelegramApiException e) {
             log.error("Send failed chatId={}: {}", chatId, e.getMessage());
         }
