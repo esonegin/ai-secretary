@@ -86,8 +86,25 @@ public class TrainingPlanner {
                                         "AI returned unknown exercise order: " + item.order());
                             }
 
+                            boolean mobility = source.actualSets().stream()
+                                    .anyMatch(set -> "MOBILITY".equalsIgnoreCase(set.loadMode()));
+
                             List<TrainingPlanProposal.SetProposal> sets;
-                            if ("CHANGE".equalsIgnoreCase(item.action())) {
+                            if (mobility) {
+                                sets = source.plannedSets().stream()
+                                        .map(set -> new TrainingPlanProposal.SetProposal(
+                                                set.setNumber(),
+                                                null,
+                                                null,
+                                                null,
+                                                "MOBILITY"))
+                                        .toList();
+                            } else if ("CHANGE".equalsIgnoreCase(item.action())) {
+                                if (item.sets() == null || item.sets().isEmpty()) {
+                                    throw new IllegalArgumentException(
+                                            "AI returned CHANGE without sets for exercise order: " + item.order());
+                                }
+
                                 sets = item.sets().stream()
                                         .map(set -> new TrainingPlanProposal.SetProposal(
                                                 set.setNumber(),
@@ -96,7 +113,7 @@ public class TrainingPlanner {
                                                 set.repsMax(),
                                                 set.loadMode()))
                                         .toList();
-                            } else {
+                            } else if ("KEEP".equalsIgnoreCase(item.action())) {
                                 sets = source.plannedSets().stream()
                                         .map(set -> new TrainingPlanProposal.SetProposal(
                                                 set.setNumber(),
@@ -105,6 +122,9 @@ public class TrainingPlanner {
                                                 set.repsMax(),
                                                 set.loadMode()))
                                         .toList();
+                            } else {
+                                throw new IllegalArgumentException(
+                                        "AI returned unsupported action: " + item.action());
                             }
 
                             return new TrainingPlanProposal.ExerciseProposal(
