@@ -3,6 +3,7 @@ package ai.personal.secretary.service;
 import ai.personal.secretary.model.*;
 import ai.personal.secretary.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +27,7 @@ public class FitnessDataService {
     private final UserProfileRepository userProfileRepository;
     private final TrainingExerciseRepository trainingExerciseRepository;
     private final TrainingSetRepository trainingSetRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public List<TrainingSession> getWorkouts(Long userId) {
         return trainingSessionRepository.findByUserIdOrderByWorkoutDateDesc(userId);
@@ -186,7 +188,11 @@ public class FitnessDataService {
                 trainingSet.setLoadMode(setResult.loadMode());
             }
         }
-        return trainingSessionRepository.save(session);
+
+        var saved = trainingSessionRepository.save(session);
+        eventPublisher.publishEvent(new WorkoutRecordedEvent(
+                userId, workoutDate, dayType, bodyWeightKg));
+        return saved;
     }
 
     private String normalizeProgramDayType(String dayType) {
