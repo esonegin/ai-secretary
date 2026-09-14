@@ -1,9 +1,12 @@
 package ai.personal.secretary.service;
 
+import org.springframework.stereotype.Component;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 
+@Component
 public class TrainingStateCalculator {
 
     private static final BigDecimal ZERO = BigDecimal.ZERO;
