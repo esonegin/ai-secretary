@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 @Service
@@ -15,127 +16,92 @@ public class TrainingAnalysisContextBuilder {
 
     private final FitnessDataService fitnessDataService;
 
-    public TrainingAnalysisContext build(
-            Long userId,
-            LocalDate workoutDate,
-            String dayType) {
-
-        var session = fitnessDataService
-                .getWorkout(userId, workoutDate, dayType)
+    public TrainingAnalysisContext build(Long userId, LocalDate workoutDate, String dayType) {
+        var session = fitnessDataService.getWorkout(userId, workoutDate, dayType)
                 .orElseThrow(() -> new IllegalArgumentException(
-                        "Training session not found: "
-                                + workoutDate + " " + dayType));
+                        "Training session not found: " + workoutDate + " " + dayType));
 
-        var goal = fitnessDataService
-                .getActiveGoal(userId)
+        var goal = fitnessDataService.getActiveGoal(userId)
                 .map(g -> g.getGoalText())
                 .orElse(null);
 
-        var program = fitnessDataService
-                .getActiveProgram(userId)
+        var program = fitnessDataService.getActiveProgram(userId).orElse(null);
+
+        var programContext = program == null ? null : new TrainingAnalysisContext.ProgramContext(
+                program.getName(), program.getVersion());
+
+        var trainingBlock = program == null
+                ? null
+                : fitnessDataService.getActiveTrainingBlockForProgram(program.getId())
+                .map(block -> new TrainingAnalysisContext.TrainingBlockContext(
+                        block.getName(),
+                        block.getGoal(),
+                        block.getPhase(),
+                        block.getStatus(),
+                        block.getStartedAt(),
+                        block.getPlannedWeeks(),
+                        block.getDeloadWeek(),
+                        calculateCurrentWeek(block.getStartedAt(), workoutDate)))
                 .orElse(null);
 
-        var programContext = program == null
-                ? null
-                : new TrainingAnalysisContext.ProgramContext(
-                program.getName(),
-                program.getVersion()
-        );
-
-        var programExercises = fitnessDataService
-                .getProgramExercises(userId, dayType);
-
-        var actualExercises = fitnessDataService
-                .getTrainingExercises(session.getId());
+        var programExercises = fitnessDataService.getProgramExercises(userId, dayType);
+        var actualExercises = fitnessDataService.getTrainingExercises(session.getId());
 
         var exercises = actualExercises.stream()
                 .map(actualExercise -> {
-
-                    TrainingProgramExercise plannedExercise =
-                            programExercises.stream()
-                                    .filter(e -> e.getExerciseOrder()
-                                            .equals(actualExercise.getExerciseOrder()))
-                                    .findFirst()
-                                    .orElse(null);
+                    TrainingProgramExercise plannedExercise = programExercises.stream()
+                            .filter(e -> e.getExerciseOrder().equals(actualExercise.getExerciseOrder()))
+                            .findFirst()
+                            .orElse(null);
 
                     var plannedSets = plannedExercise == null
                             ? List.<TrainingAnalysisContext.PlannedSetContext>of()
-                            : fitnessDataService.getProgramSets(plannedExercise.getId())
-                            .stream()
+                            : fitnessDataService.getProgramSets(plannedExercise.getId()).stream()
                             .map(set -> new TrainingAnalysisContext.PlannedSetContext(
-                                    set.getSetNumber(),
-                                    set.getWeightKg(),
-                                    set.getPlannedRepsMin(),
-                                    set.getPlannedRepsMax(),
-                                    set.getLoadMode()
-                            ))
+                                    set.getSetNumber(), set.getWeightKg(), set.getPlannedRepsMin(),
+                                    set.getPlannedRepsMax(), set.getLoadMode()))
                             .toList();
 
-                    var actualSets = fitnessDataService
-                            .getTrainingSets(actualExercise.getId())
-                            .stream()
+                    var actualSets = fitnessDataService.getTrainingSets(actualExercise.getId()).stream()
                             .map(set -> new TrainingAnalysisContext.ActualSetContext(
-                                    set.getSetNumber(),
-                                    set.getWeightKg(),
-                                    set.getActualReps(),
-                                    set.getLoadMode()
-                            ))
+                                    set.getSetNumber(), set.getWeightKg(), set.getActualReps(), set.getLoadMode()))
                             .toList();
 
                     return new TrainingAnalysisContext.ExerciseContext(
-                            actualExercise.getExerciseOrder(),
-                            actualExercise.getExerciseName(),
-                            actualExercise.getExerciseVariant(),
-                            plannedSets,
-                            actualSets
-                    );
+                            actualExercise.getExerciseOrder(), actualExercise.getExerciseName(),
+                            actualExercise.getExerciseVariant(), plannedSets, actualSets);
                 })
                 .toList();
 
-        var history = fitnessDataService
-                .getPreviousWorkouts(userId, dayType, workoutDate)
-                .stream()
+        var history = fitnessDataService.getPreviousWorkouts(userId, dayType, workoutDate).stream()
                 .map(previousSession -> {
-                    var historicalExercises = fitnessDataService
-                            .getTrainingExercises(previousSession.getId())
-                            .stream()
+                    var historicalExercises = fitnessDataService.getTrainingExercises(previousSession.getId()).stream()
                             .map(exercise -> {
-                                var actualSets = fitnessDataService
-                                        .getTrainingSets(exercise.getId())
-                                        .stream()
+                                var actualSets = fitnessDataService.getTrainingSets(exercise.getId()).stream()
                                         .map(set -> new TrainingAnalysisContext.ActualSetContext(
-                                                set.getSetNumber(),
-                                                set.getWeightKg(),
-                                                set.getActualReps(),
-                                                set.getLoadMode()
-                                        ))
+                                                set.getSetNumber(), set.getWeightKg(), set.getActualReps(), set.getLoadMode()))
                                         .toList();
 
                                 return new TrainingAnalysisContext.HistoricalExerciseContext(
-                                        exercise.getExerciseOrder(),
-                                        exercise.getExerciseName(),
-                                        actualSets
-                                );
+                                        exercise.getExerciseOrder(), exercise.getExerciseName(), actualSets);
                             })
                             .toList();
 
                     return new TrainingAnalysisContext.HistoricalWorkoutContext(
-                            previousSession.getWorkoutDate(),
-                            previousSession.getDayType(),
-                            previousSession.getBodyWeightKg(),
-                            historicalExercises
-                    );
+                            previousSession.getWorkoutDate(), previousSession.getDayType(),
+                            previousSession.getBodyWeightKg(), historicalExercises);
                 })
                 .toList();
 
         return new TrainingAnalysisContext(
-                session.getWorkoutDate(),
-                session.getDayType(),
-                session.getBodyWeightKg(),
-                goal,
-                programContext,
-                exercises,
-                history
-        );
+                session.getWorkoutDate(), session.getDayType(), session.getBodyWeightKg(),
+                goal, programContext, trainingBlock, exercises, history);
+    }
+
+    private Integer calculateCurrentWeek(LocalDate startedAt, LocalDate workoutDate) {
+        if (startedAt == null || workoutDate.isBefore(startedAt)) {
+            return null;
+        }
+        return Math.toIntExact(ChronoUnit.WEEKS.between(startedAt, workoutDate) + 1);
     }
 }
