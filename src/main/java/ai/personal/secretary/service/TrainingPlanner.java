@@ -36,30 +36,31 @@ public class TrainingPlanner {
                         цели, истории этого дня, фактически выполненной тренировки,
                         WorkoutAnalysis и вычисленного TrainingState.
 
-                        TrainingState — это детерминированно рассчитанное состояние тренинга.
-                        Используй его как источник числовых фактов и не переопределяй его своими догадками.
+                        TrainingState — детерминированный источник числовых фактов.
+                        Не заменяй его догадками.
 
-                        Верни TrainingPlanDecision.
-                        Для каждого упражнения программы верни только:
+                        Для каждого упражнения верни:
                         - order;
-                        - action = KEEP или CHANGE;
-                        - sets только если action = CHANGE.
+                        - action: KEEP, PROGRESS, REGRESS, CHANGE_REPS, CHANGE_VOLUME или DELOAD;
+                        - sets только если action не KEEP;
+                        - для каждого подхода: setNumber, weightKg, repsMin, repsMax, loadMode.
 
-                        Для CHANGE верни полный набор подходов упражнения.
-                        Силовой подход: setNumber, weightKg, repsMin, repsMax, loadMode=TOTAL.
-                        Mobility: setNumber, weightKg=null, repsMin=null, repsMax=null, loadMode=MOBILITY.
-
-                        Правила:
+                        Правила принятия решения:
+                        - KEEP: текущий план уже адекватен, изменений не требуется.
+                        - PROGRESS: есть достаточные основания для увеличения тренировочного стимула.
+                        - REGRESS: текущая нагрузка чрезмерна или выполнение ухудшилось.
+                        - CHANGE_REPS: меняй диапазон повторений без необходимости резко менять вес.
+                        - CHANGE_VOLUME: меняй количество подходов, если это оправдано состоянием тренинга.
+                        - DELOAD: снижай тренировочный стресс при необходимости восстановления или в запланированную разгрузочную неделю.
+                        - Не увеличивай вес или объём автоматически после каждой тренировки.
+                        - Прогрессия должна учитывать одновременно выполненные повторения, вес, объём,
+                          тренд упражнения, общую динамику тренировки и фазу блока.
+                        - Учитывай currentWeek, plannedWeeks, deloadWeek, blockGoal и blockPhase.
+                        - Если данных недостаточно для уверенного изменения, используй KEEP.
                         - Не меняй порядок, упражнения и варианты программы.
-                        - KEEP означает оставить текущие запланированные подходы без изменений.
-                        - CHANGE используй только при обоснованной необходимости по TrainingState,
-                          истории и WorkoutAnalysis.
-                        - Учитывай одновременно вес, повторения, объём и фазу тренировочного блока.
-                        - Не увеличивай нагрузку автоматически после каждой тренировки.
-                        - Учитывай длительность блока и текущую неделю при решении о прогрессии.
-                        - Не делай резких изменений без достаточного основания.
-                        - При недостатке данных используй KEEP.
-                        - Не выдумывай упражнения и данные.
+                        - Не выдумывай упражнения или отсутствующие факты.
+                        - Для силовых подходов используй loadMode=TOTAL.
+                        - Для mobility используй loadMode=MOBILITY и null для weightKg/repsMin/repsMax.
                         - Верни ровно по одному решению на каждое упражнение программы.
                         - generalNotes: не более 2 коротких предложений.
                         - Верни полный валидный JSON TrainingPlanDecision.
@@ -105,25 +106,7 @@ public class TrainingPlanner {
                             if (mobility) {
                                 sets = source.plannedSets().stream()
                                         .map(set -> new TrainingPlanProposal.SetProposal(
-                                                set.setNumber(),
-                                                null,
-                                                null,
-                                                null,
-                                                "MOBILITY"))
-                                        .toList();
-                            } else if ("CHANGE".equalsIgnoreCase(item.action())) {
-                                if (item.sets() == null || item.sets().isEmpty()) {
-                                    throw new IllegalArgumentException(
-                                            "AI returned CHANGE without sets for exercise order: " + item.order());
-                                }
-
-                                sets = item.sets().stream()
-                                        .map(set -> new TrainingPlanProposal.SetProposal(
-                                                set.setNumber(),
-                                                set.weightKg(),
-                                                set.repsMin(),
-                                                set.repsMax(),
-                                                set.loadMode()))
+                                                set.setNumber(), null, null, null, "MOBILITY"))
                                         .toList();
                             } else if ("KEEP".equalsIgnoreCase(item.action())) {
                                 sets = source.plannedSets().stream()
@@ -135,8 +118,20 @@ public class TrainingPlanner {
                                                 set.loadMode()))
                                         .toList();
                             } else {
-                                throw new IllegalArgumentException(
-                                        "AI returned unsupported action: " + item.action());
+                                if (item.sets() == null || item.sets().isEmpty()) {
+                                    throw new IllegalArgumentException(
+                                            "AI returned " + item.action()
+                                                    + " without sets for exercise order: " + item.order());
+                                }
+
+                                sets = item.sets().stream()
+                                        .map(set -> new TrainingPlanProposal.SetProposal(
+                                                set.setNumber(),
+                                                set.weightKg(),
+                                                set.repsMin(),
+                                                set.repsMax(),
+                                                set.loadMode()))
+                                        .toList();
                             }
 
                             return new TrainingPlanProposal.ExerciseProposal(
