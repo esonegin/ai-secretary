@@ -16,82 +16,81 @@ public class WorkoutResultParser {
 
     public WorkoutResult parse(String text) {
         var exercises = new ArrayList<ExerciseResult>();
-        ExerciseResultBuilder currentExercise = null;
+        ExerciseResultBuilder current = null;
 
         for (String line : text.split("\\R")) {
-            String trimmed = line.trim();
-            if (trimmed.isBlank()) {
-                continue;
-            }
-
             Matcher numbered = NUMBERED_LINE_PATTERN.matcher(line);
             if (!numbered.matches()) {
                 continue;
             }
 
             String payload = numbered.group(2).trim();
+            int order = Integer.parseInt(numbered.group(1));
 
-            if (containsWorkoutSet(payload)) {
-                if (currentExercise != null) {
-                    currentExercise.sets.addAll(parseSets(payload));
+            int colonIndex = payload.indexOf(':');
+            if (colonIndex >= 0) {
+                if (current != null) {
+                    exercises.add(current.toResult());
+                }
+                String name = payload.substring(0, colonIndex).trim();
+                String setsText = payload.substring(colonIndex + 1).trim();
+                current = new ExerciseResultBuilder(order, name);
+                current.sets.addAll(parseSets(setsText));
+                continue;
+            }
+
+            Matcher setMatcher = WEIGHT_AND_REPS_PATTERN.matcher(payload);
+            if (setMatcher.find() && setMatcher.start() == 0) {
+                if (current != null) {
+                    current.sets.addAll(parseWeightedSets(payload));
                 }
                 continue;
             }
 
             if (isMobility(payload)) {
-                if (currentExercise != null) {
-                    currentExercise.sets.add(new SetResult(null, null, "MOBILITY"));
+                if (current != null) {
+                    current.sets.add(new SetResult(null, null, "MOBILITY"));
                 }
                 continue;
             }
 
-            int order = Integer.parseInt(numbered.group(1));
-            String exerciseName = payload;
-
-            int colonIndex = payload.indexOf(':');
-            if (colonIndex >= 0) {
-                exerciseName = payload.substring(0, colonIndex).trim();
-                String setsText = payload.substring(colonIndex + 1).trim();
-                currentExercise = new ExerciseResultBuilder(order, exerciseName);
-                currentExercise.sets.addAll(parseSets(setsText));
-                exercises.add(currentExercise.toResult());
-                currentExercise = new ExerciseResultBuilder(order, exerciseName);
-                currentExercise.sets.addAll(exercises.remove(exercises.size() - 1).sets());
+            if (setMatcher.find()) {
+                if (current != null) {
+                    exercises.add(current.toResult());
+                }
+                String name = payload.substring(0, setMatcher.start())
+                        .replaceFirst("\\s*[—–-]\\s*$", "")
+                        .trim();
+                current = new ExerciseResultBuilder(order, name);
+                current.sets.addAll(parseWeightedSets(payload.substring(setMatcher.start())));
                 continue;
             }
 
-            if (currentExercise != null) {
-                exercises.add(currentExercise.toResult());
+            if (current != null) {
+                exercises.add(current.toResult());
             }
-            currentExercise = new ExerciseResultBuilder(order, exerciseName);
+            current = new ExerciseResultBuilder(order, payload);
         }
 
-        if (currentExercise != null) {
-            exercises.add(currentExercise.toResult());
+        if (current != null) {
+            exercises.add(current.toResult());
         }
 
         return new WorkoutResult(exercises);
     }
 
-    private boolean containsWorkoutSet(String text) {
-        return WEIGHT_AND_REPS_PATTERN.matcher(text).find();
-    }
-
     private boolean isMobility(String text) {
-        String normalized = text.trim();
-        return "mobility".equalsIgnoreCase(normalized)
-                || "stretching".equalsIgnoreCase(normalized);
+        return "mobility".equalsIgnoreCase(text.trim())
+                || "stretching".equalsIgnoreCase(text.trim());
     }
 
     private List<SetResult> parseSets(String setsText) {
         if (setsText == null || setsText.isBlank()) {
             return List.of();
         }
-
         if (isMobility(setsText)) {
             return List.of(new SetResult(null, null, "MOBILITY"));
         }
-
         return parseWeightedSets(setsText);
     }
 
