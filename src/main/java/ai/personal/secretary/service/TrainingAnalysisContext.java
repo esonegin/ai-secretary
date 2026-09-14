@@ -10,12 +10,24 @@ public record TrainingAnalysisContext(
         BigDecimal bodyWeightKg,
         String goal,
         ProgramContext program,
+        TrainingBlockContext trainingBlock,
         List<ExerciseContext> exercises,
         List<HistoricalWorkoutContext> history) {
 
     public record ProgramContext(
             String name,
             Integer version) {
+    }
+
+    public record TrainingBlockContext(
+            String name,
+            String goal,
+            String phase,
+            String status,
+            LocalDate startedAt,
+            Integer plannedWeeks,
+            Integer deloadWeek,
+            Integer currentWeek) {
     }
 
     public record ExerciseContext(
