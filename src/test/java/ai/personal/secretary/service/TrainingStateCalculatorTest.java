@@ -21,10 +21,10 @@ class TrainingStateCalculatorTest {
 
         var state = calculator.calculate(context);
 
-        assertEquals(new BigDecimal("1200"), state.currentWorkoutVolumeKg());
-        assertEquals(new BigDecimal("960"), state.previousWorkoutVolumeKg());
-        assertEquals(new BigDecimal("25.00"), state.workoutVolumeChangePct());
-        assertEquals(new BigDecimal("25.00"), state.exercises().getFirst().volumeChangePct());
+        assertEquals(0, new BigDecimal("1200").compareTo(state.currentWorkoutVolumeKg()));
+        assertEquals(0, new BigDecimal("960").compareTo(state.previousWorkoutVolumeKg()));
+        assertEquals(0, new BigDecimal("25.00").compareTo(state.workoutVolumeChangePct()));
+        assertEquals(0, new BigDecimal("25.00").compareTo(state.exercises().getFirst().volumeChangePct()));
         assertEquals("PROGRESS", state.exercises().getFirst().trend());
     }
 
