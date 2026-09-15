@@ -11,6 +11,9 @@ public class WorkoutResultParser {
     private static final Pattern NUMBERED_LINE_PATTERN = Pattern.compile(
             "^\\s*(\\d+)\\.\\s*(.+?)\\s*$");
 
+    private static final Pattern DATE_HEADER_PATTERN = Pattern.compile(
+            "^\\s*\\d{2}\\.\\d{2}\\.\\d{4}\\b.*$");
+
     private static final Pattern WEIGHT_AND_REPS_PATTERN = Pattern.compile(
             "(\\d+(?:[.,]\\d+)?)\\s*кг\\s*[×xх*]\\s*(\\d+)(?:\\s*[×xх*]\\s*(\\d+))?");
 
@@ -19,6 +22,10 @@ public class WorkoutResultParser {
         ExerciseResultBuilder current = null;
 
         for (String line : text.split("\\R")) {
+            if (DATE_HEADER_PATTERN.matcher(line).matches()) {
+                continue;
+            }
+
             Matcher numbered = NUMBERED_LINE_PATTERN.matcher(line);
             if (!numbered.matches()) {
                 continue;
