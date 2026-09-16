@@ -85,7 +85,7 @@ class FitnessDataServiceTest {
     void getActiveProgramDelegatesToActiveProgramQuery() {
         Long userId = 1L;
         TrainingProgram program = new TrainingProgram();
-        when(trainingProgramRepository.findFirstByUserIdAndStatusOrderByValidFromDescCreatedAtDesc(userId, "ACTIVE"))
+        when(trainingProgramRepository.findFirstByUserIdAndStatusOrderByValidFromDescCreatedAtDesc(userId))
                 .thenReturn(Optional.of(program));
 
         assertSame(program, fitnessDataService.getActiveProgram(userId).orElseThrow());
@@ -107,7 +107,7 @@ class FitnessDataServiceTest {
         TrainingProgramDay day = TrainingProgramDay.builder().id(20L).build();
         var exercise = TrainingProgramExercise.builder().id(30L).build();
 
-        when(trainingProgramRepository.findFirstByUserIdAndStatusOrderByValidFromDescCreatedAtDesc(1L, "ACTIVE"))
+        when(trainingProgramRepository.findFirstByUserIdAndStatusOrderByValidFromDescCreatedAtDesc(1L))
                 .thenReturn(Optional.of(program));
         when(trainingProgramDayRepository.findByProgramIdAndDayType(10L, "1"))
                 .thenReturn(Optional.of(day));
@@ -189,7 +189,7 @@ class FitnessDataServiceTest {
                         new WorkoutResultParser.SetResult(new BigDecimal("82.5"), 10, "TOTAL"),
                         new WorkoutResultParser.SetResult(new BigDecimal("82.5"), 9, "TOTAL")
                 ))
-        ));
+        , null));
 
         when(trainingExerciseRepository.save(any(TrainingExercise.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -242,7 +242,7 @@ class FitnessDataServiceTest {
                         new WorkoutResultParser.SetResult(null, 12, "BODYWEIGHT"),
                         new WorkoutResultParser.SetResult(null, 10, "BODYWEIGHT")
                 ))
-        ));
+        ), null);
 
         fitnessDataService.recordWorkoutResult(1L, date, "2", null, result);
 
@@ -278,7 +278,7 @@ class FitnessDataServiceTest {
                 new WorkoutResultParser.ExerciseResult(1, "Новое упражнение", null, List.of(
                         new WorkoutResultParser.SetResult(new BigDecimal("50"), 8, "TOTAL")
                 ))
-        ));
+        ), null);
 
         fitnessDataService.recordWorkoutResult(1L, date, "2", null, result);
 
