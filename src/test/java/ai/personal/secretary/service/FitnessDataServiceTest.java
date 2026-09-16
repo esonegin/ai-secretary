@@ -75,7 +75,7 @@ class FitnessDataServiceTest {
     void getActiveGoalDelegatesToActiveGoalQuery() {
         Long userId = 1L;
         FitnessGoal goal = new FitnessGoal();
-        when(fitnessGoalRepository.findFirstByUserIdAndStatusOrderByPriorityDescCreatedAtDesc(userId, "ACTIVE"))
+        when(fitnessGoalRepository.findFirstByUserIdAndStatusOrderByPriorityDescCreatedAtDesc(userId))
                 .thenReturn(Optional.of(goal));
 
         assertSame(goal, fitnessDataService.getActiveGoal(userId).orElseThrow());
@@ -212,11 +212,12 @@ class FitnessDataServiceTest {
         var setCaptor = org.mockito.ArgumentCaptor.forClass(TrainingSet.class);
         verify(trainingSetRepository, times(6)).save(setCaptor.capture());
         var sets = setCaptor.getAllValues();
-        assertEquals(4, sets.subList(0, 4).size());
+        assertEquals(6, sets.size());
         assertEquals("PER_HAND", sets.get(0).getLoadMode());
         assertEquals(new BigDecimal("40"), sets.get(0).getWeightKg());
         assertEquals(12, sets.get(0).getActualReps());
-        assertEquals(4, sets.get(0).getSetNumber());
+        assertEquals(1, sets.get(0).getSetNumber());
+        assertEquals(4, sets.get(3).getSetNumber());
         assertEquals(2, sets.get(4).getSetNumber());
     }
 
