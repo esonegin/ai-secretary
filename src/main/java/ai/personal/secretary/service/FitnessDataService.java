@@ -153,6 +153,8 @@ public class FitnessDataService {
                 .orElseGet(() -> startWorkout(userId, workoutDate, dayType));
         if (bodyWeightKg != null) session.setBodyWeightKg(bodyWeightKg);
 
+        replaceRecordedExercises(session);
+
         for (var exerciseResult : result.exercises()) {
             if (exerciseResult.exerciseName() == null || exerciseResult.exerciseName().isBlank()) {
                 throw new IllegalArgumentException("Workout exercise name must not be blank");
@@ -181,6 +183,16 @@ public class FitnessDataService {
         eventPublisher.publishEvent(new WorkoutRecordedEvent(
                 userId, workoutDate, dayType, bodyWeightKg));
         return saved;
+    }
+
+    private void replaceRecordedExercises(TrainingSession session) {
+        var existingExercises = trainingExerciseRepository.findBySessionIdOrderByExerciseOrder(session.getId());
+        for (var exercise : existingExercises) {
+            trainingSetRepository.deleteByExerciseId(exercise.getId());
+        }
+        if (!existingExercises.isEmpty()) {
+            trainingExerciseRepository.deleteAll(existingExercises);
+        }
     }
 
     private String normalizeProgramDayType(String dayType) {
