@@ -15,7 +15,9 @@ public class WorkoutResultParser {
             "^\\s*\\d{2}\\.\\d{2}\\.\\d{4}\\b.*$");
 
     private static final Pattern WEIGHT_AND_REPS_PATTERN = Pattern.compile(
-            "(\\d+(?:[.,]\\d+)?)\\s*кг\\s*[×xх*]\\s*(\\d+)(?:\\s*[×xх*]\\s*(\\d+))?");
+            "(\\d+(?:[.,]\\d+)?)\\s*кг(?:\\s+([^×xх*]+?))?\\s*[×xх*]\\s*(\\d+)(?:\\s*[×xх*]\\s*(\\d+))?");
+
+    private static final Pattern COMMENT_PATTERN = Pattern.compile("^(.+?)\\s*\\(([^()]*)\\)\\s*$");
 
     public WorkoutResult parse(String text) {
         var exercises = new ArrayList<ExerciseResult>();
@@ -34,41 +36,11 @@ public class WorkoutResultParser {
             String payload = numbered.group(2).trim();
             int order = Integer.parseInt(numbered.group(1));
 
-            int colonIndex = payload.indexOf(':');
-            if (colonIndex >= 0) {
-                if (current != null) {
-                    exercises.add(current.toResult());
-                }
-                String name = payload.substring(0, colonIndex).trim();
-                String setsText = payload.substring(colonIndex + 1).trim();
-                current = new ExerciseResultBuilder(order, name);
-                current.sets.addAll(parseSets(setsText));
-                continue;
-            }
-
-            Matcher setMatcher = WEIGHT_AND_REPS_PATTERN.matcher(payload);
-            if (setMatcher.find()) {
-                if (setMatcher.start() == 0) {
-                    if (current != null) {
-                        current.sets.addAll(parseWeightedSets(payload));
-                    }
-                    continue;
-                }
-
-                if (current != null) {
-                    exercises.add(current.toResult());
-                }
-                String name = payload.substring(0, setMatcher.start())
-                        .replaceFirst("\\s*[—–-]\\s*$", "")
-                        .trim();
-                current = new ExerciseResultBuilder(order, name);
-                current.sets.addAll(parseWeightedSets(payload.substring(setMatcher.start())));
-                continue;
-            }
-
-            if (isMobility(payload)) {
-                if (current != null) {
+            if (current != null && isIndentedSetLine(line)) {
+                if (isMobility(payload)) {
                     current.sets.add(new SetResult(null, null, "MOBILITY"));
+                } else {
+                    current.sets.addAll(parseWeightedSets(payload));
                 }
                 continue;
             }
@@ -76,7 +48,41 @@ public class WorkoutResultParser {
             if (current != null) {
                 exercises.add(current.toResult());
             }
-            current = new ExerciseResultBuilder(order, payload);
+
+            Matcher comment = COMMENT_PATTERN.matcher(payload);
+            String exerciseText = payload;
+            String notes = null;
+            if (comment.matches()) {
+                exerciseText = comment.group(1).trim();
+                notes = comment.group(2).trim();
+            }
+
+            int colonIndex = exerciseText.indexOf(':');
+            if (colonIndex >= 0) {
+                String name = exerciseText.substring(0, colonIndex).trim();
+                String setsText = exerciseText.substring(colonIndex + 1).trim();
+                current = new ExerciseResultBuilder(order, name, notes);
+                current.sets.addAll(parseSets(setsText));
+                continue;
+            }
+
+            Matcher setMatcher = WEIGHT_AND_REPS_PATTERN.matcher(exerciseText);
+            if (setMatcher.find()) {
+                String name = exerciseText.substring(0, setMatcher.start())
+                        .replaceFirst("\\s*[—–-]\\s*$", "")
+                        .trim();
+                current = new ExerciseResultBuilder(order, name, notes);
+                current.sets.addAll(parseWeightedSets(exerciseText.substring(setMatcher.start())));
+                continue;
+            }
+
+            if (isMobility(exerciseText)) {
+                current = new ExerciseResultBuilder(order, exerciseText, notes);
+                current.sets.add(new SetResult(null, null, "MOBILITY"));
+                continue;
+            }
+
+            current = new ExerciseResultBuilder(order, exerciseText, notes);
         }
 
         if (current != null) {
@@ -84,6 +90,10 @@ public class WorkoutResultParser {
         }
 
         return new WorkoutResult(exercises);
+    }
+
+    private boolean isIndentedSetLine(String line) {
+        return line.matches("^\\s{2,}\\d+\\.\\s+.*$");
     }
 
     private boolean isMobility(String text) {
@@ -107,29 +117,47 @@ public class WorkoutResultParser {
 
         while (matcher.find()) {
             BigDecimal weight = new BigDecimal(matcher.group(1).replace(',', '.'));
-            int reps = Integer.parseInt(matcher.group(2));
-            int setCount = matcher.group(3) == null ? 1 : Integer.parseInt(matcher.group(3));
+            String loadMode = parseLoadMode(matcher.group(2));
+            int reps = Integer.parseInt(matcher.group(3));
+            int setCount = matcher.group(4) == null ? 1 : Integer.parseInt(matcher.group(4));
 
             for (int i = 0; i < setCount; i++) {
-                result.add(new SetResult(weight, reps, "TOTAL"));
+                result.add(new SetResult(weight, reps, loadMode));
             }
         }
 
         return result;
     }
 
+    private String parseLoadMode(String qualifier) {
+        if (qualifier == null || qualifier.isBlank()) {
+            return "TOTAL";
+        }
+        String normalized = qualifier.trim().toLowerCase();
+        if (normalized.contains("на руку") || normalized.contains("на каждую руку")
+                || normalized.contains("на сторону")) {
+            return "PER_HAND";
+        }
+        if (normalized.contains("на ногу") || normalized.contains("на каждую ногу")) {
+            return "PER_LEG";
+        }
+        return "TOTAL";
+    }
+
     private static final class ExerciseResultBuilder {
         private final int order;
         private final String name;
+        private final String notes;
         private final List<SetResult> sets = new ArrayList<>();
 
-        private ExerciseResultBuilder(int order, String name) {
+        private ExerciseResultBuilder(int order, String name, String notes) {
             this.order = order;
             this.name = name;
+            this.notes = notes;
         }
 
         private ExerciseResult toResult() {
-            return new ExerciseResult(order, name, List.copyOf(sets));
+            return new ExerciseResult(order, name, notes, List.copyOf(sets));
         }
     }
 
@@ -138,6 +166,7 @@ public class WorkoutResultParser {
     public record ExerciseResult(
             int exerciseOrder,
             String exerciseName,
+            String notes,
             List<SetResult> sets) {}
 
     public record SetResult(
