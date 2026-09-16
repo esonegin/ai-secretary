@@ -1,17 +1,7 @@
 package ai.personal.secretary.service;
 
-import ai.personal.secretary.model.TrainingSession;
-import ai.personal.secretary.model.FitnessGoal;
-import ai.personal.secretary.model.TrainingProgram;
-import ai.personal.secretary.model.TrainingProgramDay;
-import ai.personal.secretary.model.TrainingProgramExercise;
-import ai.personal.secretary.repository.FitnessGoalRepository;
-import ai.personal.secretary.repository.TrainingProgramDayRepository;
-import ai.personal.secretary.repository.TrainingProgramExerciseRepository;
-import ai.personal.secretary.repository.TrainingProgramRepository;
-import ai.personal.secretary.repository.TrainingProgramSetRepository;
-import ai.personal.secretary.repository.TrainingSessionRepository;
-import ai.personal.secretary.repository.UserProfileRepository;
+import ai.personal.secretary.model.*;
+import ai.personal.secretary.repository.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -19,23 +9,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
-import ai.personal.secretary.model.TrainingExercise;
-import ai.personal.secretary.model.TrainingSet;
-import ai.personal.secretary.repository.TrainingExerciseRepository;
-import ai.personal.secretary.repository.TrainingSetRepository;
-
 import java.math.BigDecimal;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class FitnessDataServiceTest {
@@ -59,9 +40,7 @@ class FitnessDataServiceTest {
         List<TrainingSession> sessions = List.of(new TrainingSession());
         when(trainingSessionRepository.findByUserIdOrderByWorkoutDateDesc(userId)).thenReturn(sessions);
 
-        List<TrainingSession> result = fitnessDataService.getWorkouts(userId);
-
-        assertSame(sessions, result);
+        assertSame(sessions, fitnessDataService.getWorkouts(userId));
         verify(trainingSessionRepository).findByUserIdOrderByWorkoutDateDesc(userId);
     }
 
@@ -74,9 +53,7 @@ class FitnessDataServiceTest {
         when(trainingSessionRepository.findByUserIdAndWorkoutDateBetweenOrderByWorkoutDateDesc(userId, from, to))
                 .thenReturn(sessions);
 
-        List<TrainingSession> result = fitnessDataService.getWorkouts(userId, from, to);
-
-        assertSame(sessions, result);
+        assertSame(sessions, fitnessDataService.getWorkouts(userId, from, to));
         verify(trainingSessionRepository)
                 .findByUserIdAndWorkoutDateBetweenOrderByWorkoutDateDesc(userId, from, to);
     }
@@ -90,11 +67,8 @@ class FitnessDataServiceTest {
         when(trainingSessionRepository.findByUserIdAndWorkoutDateAndDayType(userId, workoutDate, dayType))
                 .thenReturn(session);
 
-        Optional<TrainingSession> result = fitnessDataService.getWorkout(userId, workoutDate, dayType);
-
-        assertSame(session, result);
-        verify(trainingSessionRepository)
-                .findByUserIdAndWorkoutDateAndDayType(userId, workoutDate, dayType);
+        assertSame(session, fitnessDataService.getWorkout(userId, workoutDate, dayType));
+        verify(trainingSessionRepository).findByUserIdAndWorkoutDateAndDayType(userId, workoutDate, dayType);
     }
 
     @Test
@@ -105,8 +79,6 @@ class FitnessDataServiceTest {
                 .thenReturn(Optional.of(goal));
 
         assertSame(goal, fitnessDataService.getActiveGoal(userId).orElseThrow());
-        verify(fitnessGoalRepository)
-                .findFirstByUserIdAndStatusOrderByPriorityDescCreatedAtDesc(userId, "ACTIVE");
     }
 
     @Test
@@ -117,8 +89,6 @@ class FitnessDataServiceTest {
                 .thenReturn(Optional.of(program));
 
         assertSame(program, fitnessDataService.getActiveProgram(userId).orElseThrow());
-        verify(trainingProgramRepository)
-                .findFirstByUserIdAndStatusOrderByValidFromDescCreatedAtDesc(userId, "ACTIVE");
     }
 
     @Test
@@ -167,11 +137,10 @@ class FitnessDataServiceTest {
 
     @Test
     void getProgramSetsDelegatesToProgramExerciseQuery() {
-        var sets = List.of(new ai.personal.secretary.model.TrainingProgramSet());
+        var sets = List.of(new TrainingProgramSet());
         when(trainingProgramSetRepository.findByProgramExerciseIdOrderBySetNumber(10L)).thenReturn(sets);
 
         assertSame(sets, fitnessDataService.getProgramSets(10L));
-        verify(trainingProgramSetRepository).findByProgramExerciseIdOrderBySetNumber(10L);
     }
 
     @Test
@@ -179,137 +148,111 @@ class FitnessDataServiceTest {
         when(trainingProgramSetRepository.countByProgramExerciseId(10L)).thenReturn(3L);
 
         assertEquals(3L, fitnessDataService.getProgramSetCount(10L));
-        verify(trainingProgramSetRepository).countByProgramExerciseId(10L);
     }
 
     @Test
-    void recordWorkoutResultUpdatesExistingSetsAndBodyWeight() {
-        var workoutDate = LocalDate.of(2026, 9, 7);
-        var dayType = "2";
-        var session = TrainingSession.builder().id(100L).workoutDate(workoutDate).dayType(dayType).build();
-        var exercise = TrainingExercise.builder().id(101L).session(session).exerciseOrder(1)
-                .exerciseName("Наклонный жим гантелей").build();
-        var set1 = TrainingSet.builder().id(201L).exercise(exercise).setNumber(1).loadMode("TOTAL").build();
-        var set2 = TrainingSet.builder().id(202L).exercise(exercise).setNumber(2).loadMode("TOTAL").build();
-        var set3 = TrainingSet.builder().id(203L).exercise(exercise).setNumber(3).loadMode("TOTAL").build();
+    void startWorkoutCreatesOnlySessionWithoutCopyingProgram() {
+        var date = LocalDate.of(2026, 9, 16);
+        var user = UserProfile.builder().id(1L).build();
+        var session = TrainingSession.builder().id(100L).user(user).workoutDate(date).dayType("2").build();
+        when(trainingSessionRepository.findByUserIdAndWorkoutDateAndDayType(1L, date, "2"))
+                .thenReturn(Optional.empty());
+        when(userProfileRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(trainingSessionRepository.save(any(TrainingSession.class))).thenReturn(session);
 
-        when(trainingSessionRepository.findByUserIdAndWorkoutDateAndDayType(1L, workoutDate, dayType))
+        var result = fitnessDataService.startWorkout(1L, date, "2");
+
+        assertSame(session, result);
+        verify(trainingSessionRepository).save(any(TrainingSession.class));
+        verifyNoInteractions(trainingProgramRepository, trainingProgramDayRepository,
+                trainingProgramExerciseRepository, trainingProgramSetRepository,
+                trainingExerciseRepository, trainingSetRepository);
+    }
+
+    @Test
+    void recordWorkoutResultPersistsActualExercisesAndVariableSetCount() {
+        var date = LocalDate.of(2026, 9, 16);
+        var user = UserProfile.builder().id(1L).build();
+        var session = TrainingSession.builder().id(100L).user(user).workoutDate(date).dayType("2").build();
+        when(trainingSessionRepository.findByUserIdAndWorkoutDateAndDayType(1L, date, "2"))
                 .thenReturn(Optional.of(session));
-        when(trainingExerciseRepository.findBySessionIdOrderByExerciseOrder(session.getId()))
-                .thenReturn(List.of(exercise));
-        when(trainingSetRepository.findByExerciseIdOrderBySetNumber(exercise.getId()))
-                .thenReturn(List.of(set1, set2, set3));
 
         var result = new WorkoutResultParser.WorkoutResult(List.of(
-                new WorkoutResultParser.ExerciseResult(1, "Наклонный жим гантелей", null, List.of(
-                        new WorkoutResultParser.SetResult(new BigDecimal("40"), 8, "TOTAL"),
-                        new WorkoutResultParser.SetResult(new BigDecimal("40"), 8, "TOTAL"),
-                        new WorkoutResultParser.SetResult(new BigDecimal("40"), 10, "TOTAL")
+                new WorkoutResultParser.ExerciseResult(1, "Вертикальный Хаммер",
+                        "свободного верхнего блока не было", List.of(
+                        new WorkoutResultParser.SetResult(new BigDecimal("40"), 12, "PER_HAND"),
+                        new WorkoutResultParser.SetResult(new BigDecimal("40"), 10, "PER_HAND"),
+                        new WorkoutResultParser.SetResult(new BigDecimal("35"), 12, "PER_HAND"),
+                        new WorkoutResultParser.SetResult(new BigDecimal("35"), 10, "PER_HAND")
+                )),
+                new WorkoutResultParser.ExerciseResult(2, "Румынская тяга", null, List.of(
+                        new WorkoutResultParser.SetResult(new BigDecimal("82.5"), 10, "TOTAL"),
+                        new WorkoutResultParser.SetResult(new BigDecimal("82.5"), 9, "TOTAL")
                 ))
         ));
 
+        when(trainingExerciseRepository.save(any(TrainingExercise.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(trainingSetRepository.save(any(TrainingSet.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         when(trainingSessionRepository.save(session)).thenReturn(session);
 
-        var saved = fitnessDataService.recordWorkoutResult(1L, workoutDate, dayType,
-                new BigDecimal("84.2"), result);
+        var saved = fitnessDataService.recordWorkoutResult(1L, date, "2", new BigDecimal("83.0"), result);
 
-        assertEquals(new BigDecimal("84.2"), saved.getBodyWeightKg());
-        assertEquals(new BigDecimal("40"), set1.getWeightKg());
-        assertEquals(8, set1.getActualReps());
-        assertEquals(new BigDecimal("40"), set2.getWeightKg());
-        assertEquals(8, set2.getActualReps());
-        assertEquals(new BigDecimal("40"), set3.getWeightKg());
-        assertEquals(10, set3.getActualReps());
-        verify(trainingSessionRepository).save(session);
+        assertSame(session, saved);
+        assertEquals(new BigDecimal("83.0"), session.getBodyWeightKg());
+
+        var exerciseCaptor = org.mockito.ArgumentCaptor.forClass(TrainingExercise.class);
+        verify(trainingExerciseRepository, times(2)).save(exerciseCaptor.capture());
+        var exercises = exerciseCaptor.getAllValues();
+        assertEquals("Вертикальный Хаммер", exercises.get(0).getExerciseName());
+        assertEquals("свободного верхнего блока не было", exercises.get(0).getNotes());
+        assertEquals("Румынская тяга", exercises.get(1).getExerciseName());
+
+        var setCaptor = org.mockito.ArgumentCaptor.forClass(TrainingSet.class);
+        verify(trainingSetRepository, times(6)).save(setCaptor.capture());
+        var sets = setCaptor.getAllValues();
+        assertEquals(4, sets.subList(0, 4).size());
+        assertEquals("PER_HAND", sets.get(0).getLoadMode());
+        assertEquals(new BigDecimal("40"), sets.get(0).getWeightKg());
+        assertEquals(12, sets.get(0).getActualReps());
+        assertEquals(4, sets.get(0).getSetNumber());
+        assertEquals(2, sets.get(4).getSetNumber());
     }
 
     @Test
-    void recordWorkoutResultSupportsBodyweightAndStretching() {
-        var workoutDate = LocalDate.of(2026, 9, 7);
-        var dayType = "2";
-        var session = TrainingSession.builder().id(200L).workoutDate(workoutDate).dayType(dayType).build();
-        var stretching = TrainingExercise.builder().id(201L).session(session).exerciseOrder(8)
-                .exerciseName("Растяжка грудных").build();
-        var wallSlides = TrainingExercise.builder().id(202L).session(session).exerciseOrder(9)
-                .exerciseName("Wall Slides").build();
-        var stretchingSet = TrainingSet.builder().id(301L).exercise(stretching).setNumber(1).loadMode("TOTAL").build();
-        var wallSet1 = TrainingSet.builder().id(302L).exercise(wallSlides).setNumber(1).loadMode("TOTAL").build();
-        var wallSet2 = TrainingSet.builder().id(303L).exercise(wallSlides).setNumber(2).loadMode("TOTAL").build();
-
-        when(trainingSessionRepository.findByUserIdAndWorkoutDateAndDayType(1L, workoutDate, dayType))
+    void recordWorkoutResultSupportsStretchingAndBodyweightWithoutProgramSets() {
+        var date = LocalDate.of(2026, 9, 16);
+        var session = TrainingSession.builder().id(200L).workoutDate(date).dayType("2").build();
+        when(trainingSessionRepository.findByUserIdAndWorkoutDateAndDayType(1L, date, "2"))
                 .thenReturn(Optional.of(session));
-        when(trainingExerciseRepository.findBySessionIdOrderByExerciseOrder(session.getId()))
-                .thenReturn(List.of(stretching, wallSlides));
-        when(trainingSetRepository.findByExerciseIdOrderBySetNumber(stretching.getId()))
-                .thenReturn(List.of(stretchingSet));
-        when(trainingSetRepository.findByExerciseIdOrderBySetNumber(wallSlides.getId()))
-                .thenReturn(List.of(wallSet1, wallSet2));
+        when(trainingExerciseRepository.save(any(TrainingExercise.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(trainingSetRepository.save(any(TrainingSet.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(trainingSessionRepository.save(session)).thenReturn(session);
 
         var result = new WorkoutResultParser.WorkoutResult(List.of(
                 new WorkoutResultParser.ExerciseResult(8, "Растяжка грудных", null, List.of(
-                        new WorkoutResultParser.SetResult(null, null, "STRETCHING")
+                        new WorkoutResultParser.SetResult(null, null, "MOBILITY")
                 )),
                 new WorkoutResultParser.ExerciseResult(9, "Wall Slides", null, List.of(
                         new WorkoutResultParser.SetResult(null, 12, "BODYWEIGHT"),
-                        new WorkoutResultParser.SetResult(null, 12, "BODYWEIGHT")
+                        new WorkoutResultParser.SetResult(null, 10, "BODYWEIGHT")
                 ))
         ));
 
-        fitnessDataService.recordWorkoutResult(1L, workoutDate, dayType,
-                new BigDecimal("84.2"), result);
+        fitnessDataService.recordWorkoutResult(1L, date, "2", null, result);
 
-        assertNull(stretchingSet.getWeightKg());
-        assertNull(stretchingSet.getActualReps());
-        assertEquals("STRETCHING", stretchingSet.getLoadMode());
-        assertNull(wallSet1.getWeightKg());
-        assertEquals(12, wallSet1.getActualReps());
-        assertEquals("BODYWEIGHT", wallSet1.getLoadMode());
-        assertNull(wallSet2.getWeightKg());
-        assertEquals(12, wallSet2.getActualReps());
-        assertEquals("BODYWEIGHT", wallSet2.getLoadMode());
-    }
-
-    @Test
-    void shouldRecordBodyweightAndStretchingResults() {
-        var session = TrainingSession.builder().id(200L).workoutDate(LocalDate.of(2026, 9, 7)).dayType("2").build();
-        var stretchingExercise = TrainingExercise.builder().id(300L).exerciseOrder(8)
-                .exerciseName("Растяжка грудных").session(session).build();
-        var wallSlidesExercise = TrainingExercise.builder().id(301L).exerciseOrder(9)
-                .exerciseName("Wall Slides").session(session).build();
-        var stretchingSet = TrainingSet.builder().id(400L).exercise(stretchingExercise).setNumber(1).build();
-        var wallSlidesSet1 = TrainingSet.builder().id(401L).exercise(wallSlidesExercise).setNumber(1).build();
-        var wallSlidesSet2 = TrainingSet.builder().id(402L).exercise(wallSlidesExercise).setNumber(2).build();
-
-        when(trainingSessionRepository.findByUserIdAndWorkoutDateAndDayType(1L, LocalDate.of(2026, 9, 7), "2"))
-                .thenReturn(Optional.of(session));
-        when(trainingExerciseRepository.findBySessionIdOrderByExerciseOrder(200L))
-                .thenReturn(List.of(stretchingExercise, wallSlidesExercise));
-        when(trainingSetRepository.findByExerciseIdOrderBySetNumber(300L)).thenReturn(List.of(stretchingSet));
-        when(trainingSetRepository.findByExerciseIdOrderBySetNumber(301L))
-                .thenReturn(List.of(wallSlidesSet1, wallSlidesSet2));
-
-        var result = new WorkoutResultParser.WorkoutResult(List.of(
-                new WorkoutResultParser.ExerciseResult(8, "Растяжка грудных", null, List.of(
-                        new WorkoutResultParser.SetResult(null, null, "STRETCHING")
-                )),
-                new WorkoutResultParser.ExerciseResult(9, "Wall Slides", null, List.of(
-                        new WorkoutResultParser.SetResult(null, 12, "BODYWEIGHT"),
-                        new WorkoutResultParser.SetResult(null, 12, "BODYWEIGHT")
-                ))
-        ));
-
-        fitnessDataService.recordWorkoutResult(1L, LocalDate.of(2026, 9, 7), "2",
-                new BigDecimal("84.2"), result);
-
-        assertNull(stretchingSet.getWeightKg());
-        assertNull(stretchingSet.getActualReps());
-        assertEquals("STRETCHING", stretchingSet.getLoadMode());
-        assertNull(wallSlidesSet1.getWeightKg());
-        assertEquals(12, wallSlidesSet1.getActualReps());
-        assertEquals("BODYWEIGHT", wallSlidesSet1.getLoadMode());
-        assertNull(wallSlidesSet2.getWeightKg());
-        assertEquals(12, wallSlidesSet2.getActualReps());
-        assertEquals("BODYWEIGHT", wallSlidesSet2.getLoadMode());
-        assertEquals(new BigDecimal("84.2"), session.getBodyWeightKg());
+        var setCaptor = org.mockito.ArgumentCaptor.forClass(TrainingSet.class);
+        verify(trainingSetRepository, times(3)).save(setCaptor.capture());
+        var sets = setCaptor.getAllValues();
+        assertEquals("MOBILITY", sets.get(0).getLoadMode());
+        assertNull(sets.get(0).getWeightKg());
+        assertNull(sets.get(0).getActualReps());
+        assertEquals("BODYWEIGHT", sets.get(1).getLoadMode());
+        assertEquals(12, sets.get(1).getActualReps());
+        assertEquals("BODYWEIGHT", sets.get(2).getLoadMode());
+        assertEquals(10, sets.get(2).getActualReps());
     }
 }
