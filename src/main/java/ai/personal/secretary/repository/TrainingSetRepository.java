@@ -22,6 +22,5 @@ public interface TrainingSetRepository extends JpaRepository<TrainingSet, Long> 
 
     List<TrainingSet> findByExerciseIdOrderBySetNumber(Long exerciseId);
 
+    void deleteByExerciseId(Long exerciseId);
 }
-
-
