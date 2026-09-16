@@ -12,7 +12,6 @@ import ai.personal.secretary.repository.TrainingProgramRepository;
 import ai.personal.secretary.repository.TrainingProgramSetRepository;
 import ai.personal.secretary.repository.TrainingSessionRepository;
 import ai.personal.secretary.repository.UserProfileRepository;
-import ai.personal.secretary.model.UserProfile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -35,7 +34,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -197,7 +195,7 @@ class FitnessDataServiceTest {
 
         when(trainingSessionRepository.findByUserIdAndWorkoutDateAndDayType(1L, workoutDate, dayType))
                 .thenReturn(Optional.of(session));
-        when(trainingExerciseRepository.findBySessionIdOrderOrderByExerciseOrder(session.getId()))
+        when(trainingExerciseRepository.findBySessionIdOrderByExerciseOrder(session.getId()))
                 .thenReturn(List.of(exercise));
         when(trainingSetRepository.findByExerciseIdOrderBySetNumber(exercise.getId()))
                 .thenReturn(List.of(set1, set2, set3));
