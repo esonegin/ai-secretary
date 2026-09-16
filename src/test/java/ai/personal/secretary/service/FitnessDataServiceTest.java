@@ -42,38 +42,18 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class FitnessDataServiceTest {
 
-    @Mock
-    private TrainingSessionRepository trainingSessionRepository;
+    @Mock private TrainingSessionRepository trainingSessionRepository;
+    @Mock private FitnessGoalRepository fitnessGoalRepository;
+    @Mock private TrainingProgramRepository trainingProgramRepository;
+    @Mock private TrainingProgramDayRepository trainingProgramDayRepository;
+    @Mock private TrainingProgramExerciseRepository trainingProgramExerciseRepository;
+    @Mock private TrainingProgramSetRepository trainingProgramSetRepository;
+    @Mock private UserProfileRepository userProfileRepository;
+    @Mock private TrainingExerciseRepository trainingExerciseRepository;
+    @Mock private TrainingSetRepository trainingSetRepository;
+    @Mock private ApplicationEventPublisher eventPublisher;
 
-    @Mock
-    private FitnessGoalRepository fitnessGoalRepository;
-
-    @Mock
-    private TrainingProgramRepository trainingProgramRepository;
-
-    @Mock
-    private TrainingProgramDayRepository trainingProgramDayRepository;
-
-    @Mock
-    private TrainingProgramExerciseRepository trainingProgramExerciseRepository;
-
-    @Mock
-    private TrainingProgramSetRepository trainingProgramSetRepository;
-
-    @Mock
-    private UserProfileRepository userProfileRepository;
-
-    @Mock
-    private TrainingExerciseRepository trainingExerciseRepository;
-
-    @Mock
-    private TrainingSetRepository trainingSetRepository;
-
-    @Mock
-    private ApplicationEventPublisher eventPublisher;
-
-    @InjectMocks
-    private FitnessDataService fitnessDataService;
+    @InjectMocks private FitnessDataService fitnessDataService;
 
     @Test
     void getWorkoutsDelegatesToFullHistoryQuery() {
@@ -93,8 +73,8 @@ class FitnessDataServiceTest {
         LocalDate from = LocalDate.of(2026, 1, 1);
         LocalDate to = LocalDate.of(2026, 1, 31);
         List<TrainingSession> sessions = List.of(new TrainingSession());
-        when(trainingSessionRepository.findByUserIdAndWorkoutDateBetweenOrderByWorkoutDateDesc(
-                userId, from, to)).thenReturn(sessions);
+        when(trainingSessionRepository.findByUserIdAndWorkoutDateBetweenOrderByWorkoutDateDesc(userId, from, to))
+                .thenReturn(sessions);
 
         List<TrainingSession> result = fitnessDataService.getWorkouts(userId, from, to);
 
@@ -217,13 +197,13 @@ class FitnessDataServiceTest {
 
         when(trainingSessionRepository.findByUserIdAndWorkoutDateAndDayType(1L, workoutDate, dayType))
                 .thenReturn(Optional.of(session));
-        when(trainingExerciseRepository.findBySessionIdOrderByExerciseOrder(session.getId()))
+        when(trainingExerciseRepository.findBySessionIdOrderOrderByExerciseOrder(session.getId()))
                 .thenReturn(List.of(exercise));
         when(trainingSetRepository.findByExerciseIdOrderBySetNumber(exercise.getId()))
                 .thenReturn(List.of(set1, set2, set3));
 
         var result = new WorkoutResultParser.WorkoutResult(List.of(
-                new WorkoutResultParser.ExerciseResult(1, "Наклонный жим гантелей", List.of(
+                new WorkoutResultParser.ExerciseResult(1, "Наклонный жим гантелей", null, List.of(
                         new WorkoutResultParser.SetResult(new BigDecimal("40"), 8, "TOTAL"),
                         new WorkoutResultParser.SetResult(new BigDecimal("40"), 8, "TOTAL"),
                         new WorkoutResultParser.SetResult(new BigDecimal("40"), 10, "TOTAL")
@@ -268,10 +248,10 @@ class FitnessDataServiceTest {
                 .thenReturn(List.of(wallSet1, wallSet2));
 
         var result = new WorkoutResultParser.WorkoutResult(List.of(
-                new WorkoutResultParser.ExerciseResult(8, "Растяжка грудных", List.of(
+                new WorkoutResultParser.ExerciseResult(8, "Растяжка грудных", null, List.of(
                         new WorkoutResultParser.SetResult(null, null, "STRETCHING")
                 )),
-                new WorkoutResultParser.ExerciseResult(9, "Wall Slides", List.of(
+                new WorkoutResultParser.ExerciseResult(9, "Wall Slides", null, List.of(
                         new WorkoutResultParser.SetResult(null, 12, "BODYWEIGHT"),
                         new WorkoutResultParser.SetResult(null, 12, "BODYWEIGHT")
                 ))
@@ -311,10 +291,10 @@ class FitnessDataServiceTest {
                 .thenReturn(List.of(wallSlidesSet1, wallSlidesSet2));
 
         var result = new WorkoutResultParser.WorkoutResult(List.of(
-                new WorkoutResultParser.ExerciseResult(8, "Растяжка грудных", List.of(
+                new WorkoutResultParser.ExerciseResult(8, "Растяжка грудных", null, List.of(
                         new WorkoutResultParser.SetResult(null, null, "STRETCHING")
                 )),
-                new WorkoutResultParser.ExerciseResult(9, "Wall Slides", List.of(
+                new WorkoutResultParser.ExerciseResult(9, "Wall Slides", null, List.of(
                         new WorkoutResultParser.SetResult(null, 12, "BODYWEIGHT"),
                         new WorkoutResultParser.SetResult(null, 12, "BODYWEIGHT")
                 ))
