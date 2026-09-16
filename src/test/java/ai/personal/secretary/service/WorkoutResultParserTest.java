@@ -56,31 +56,11 @@ class WorkoutResultParserTest {
     }
 
     @Test
-    void parsesBodyweightSets() {
-        var result = parser.parse("""
-                1. Отжимания: собственный вес × 12 × 3
-                2. Подтягивания: bodyweight × 8 × 2
-                3. Wall Slides: вес тела × 15
-                """);
+    void parsesBodyWeightMeasurement() {
+        var result = parser.parse("Собственный вес 84,2кг");
 
-        assertEquals(3, result.exercises().size());
-
-        var pushUps = result.exercises().get(0).sets();
-        assertEquals(3, pushUps.size());
-        assertNull(pushUps.get(0).weightKg());
-        assertEquals(12, pushUps.get(0).actualReps());
-        assertEquals("BODYWEIGHT", pushUps.get(0).loadMode());
-        assertEquals("BODYWEIGHT", pushUps.get(2).loadMode());
-
-        var pullUps = result.exercises().get(1).sets();
-        assertEquals(2, pullUps.size());
-        assertEquals(8, pullUps.get(1).actualReps());
-        assertEquals("BODYWEIGHT", pullUps.get(1).loadMode());
-
-        var wallSlides = result.exercises().get(2).sets();
-        assertEquals(1, wallSlides.size());
-        assertEquals(15, wallSlides.get(0).actualReps());
-        assertEquals("BODYWEIGHT", wallSlides.get(0).loadMode());
+        assertEquals(0, result.exercises().size());
+        assertEquals(new BigDecimal("84.2"), result.bodyWeightKg());
     }
 
     @Test
@@ -109,6 +89,7 @@ class WorkoutResultParserTest {
         assertEquals(3, result.exercises().get(6).sets().size());
         assertEquals("MOBILITY", result.exercises().get(7).sets().get(0).loadMode());
         assertEquals("MOBILITY", result.exercises().get(8).sets().get(0).loadMode());
+        assertEquals(new BigDecimal("84.2"), result.bodyWeightKg());
     }
 
     @Test
