@@ -1,7 +1,24 @@
 package ai.personal.secretary.service;
 
-import ai.personal.secretary.model.*;
-import ai.personal.secretary.repository.*;
+import ai.personal.secretary.model.FitnessGoal;
+import ai.personal.secretary.model.TrainingBlock;
+import ai.personal.secretary.model.TrainingExercise;
+import ai.personal.secretary.model.TrainingProgram;
+import ai.personal.secretary.model.TrainingProgramDay;
+import ai.personal.secretary.model.TrainingProgramExercise;
+import ai.personal.secretary.model.TrainingProgramSet;
+import ai.personal.secretary.model.TrainingSession;
+import ai.personal.secretary.model.TrainingSet;
+import ai.personal.secretary.repository.FitnessGoalRepository;
+import ai.personal.secretary.repository.TrainingBlockRepository;
+import ai.personal.secretary.repository.TrainingExerciseRepository;
+import ai.personal.secretary.repository.TrainingProgramDayRepository;
+import ai.personal.secretary.repository.TrainingProgramExerciseRepository;
+import ai.personal.secretary.repository.TrainingProgramRepository;
+import ai.personal.secretary.repository.TrainingProgramSetRepository;
+import ai.personal.secretary.repository.TrainingSessionRepository;
+import ai.personal.secretary.repository.TrainingSetRepository;
+import ai.personal.secretary.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -104,6 +121,10 @@ public class FitnessDataService {
         return trainingProgramSetRepository.countByProgramExerciseId(programExerciseId);
     }
 
+    /**
+     * Creates only the workout session. The program is a prescription and must not
+     * be copied into the factual training_exercises/training_sets tables.
+     */
     @Transactional
     public TrainingSession startWorkout(Long userId, LocalDate workoutDate, String dayType) {
         var existing = trainingSessionRepository.findByUserIdAndWorkoutDateAndDayType(userId, workoutDate, dayType);
@@ -111,36 +132,9 @@ public class FitnessDataService {
 
         var user = userProfileRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
-        var program = getActiveProgram(userId)
-                .orElseThrow(() -> new IllegalStateException("Active training program not found"));
-        var day = getProgramDay(program.getId(), dayType)
-                .orElseThrow(() -> new IllegalArgumentException("Training day not found: " + dayType));
-        var exercises = trainingProgramExerciseRepository.findByProgramDayIdOrderByExerciseOrder(day.getId());
-        if (exercises.isEmpty()) throw new IllegalStateException("Training program day has no exercises");
 
-        var session = trainingSessionRepository.save(TrainingSession.builder()
+        return trainingSessionRepository.save(TrainingSession.builder()
                 .user(user).workoutDate(workoutDate).dayType(dayType).build());
-
-        for (var programExercise : exercises) {
-            var trainingExercise = trainingExerciseRepository.save(TrainingExercise.builder()
-                    .session(session).exerciseOrder(programExercise.getExerciseOrder())
-                    .exerciseName(programExercise.getExerciseName())
-                    .exerciseVariant(programExercise.getExerciseVariant()).build());
-
-            var programSets = trainingProgramSetRepository.findByProgramExerciseIdOrderBySetNumber(programExercise.getId());
-            for (var programSet : programSets) {
-                trainingSetRepository.save(TrainingSet.builder()
-                        .exercise(trainingExercise)
-                        .setNumber(programSet.getSetNumber())
-                        .weightKg(programSet.getWeightKg())
-                        .plannedRepsMin(programSet.getPlannedRepsMin())
-                        .plannedRepsMax(programSet.getPlannedRepsMax())
-                        .loadMode(programSet.getLoadMode())
-                        .notes(programSet.getNotes())
-                        .build());
-            }
-        }
-        return session;
     }
 
     @Transactional
@@ -159,42 +153,27 @@ public class FitnessDataService {
                 .orElseGet(() -> startWorkout(userId, workoutDate, dayType));
         if (bodyWeightKg != null) session.setBodyWeightKg(bodyWeightKg);
 
-        var trainingExercises = trainingExerciseRepository.findBySessionIdOrderByExerciseOrder(session.getId());
-        var resultByOrder = result.exercises().stream().collect(java.util.stream.Collectors.toMap(
-                WorkoutResultParser.ExerciseResult::exerciseOrder, java.util.function.Function.identity()));
-
-        for (var trainingExercise : trainingExercises) {
-            var exerciseResult = resultByOrder.get(trainingExercise.getExerciseOrder());
-            if (exerciseResult == null) continue;
-            var trainingSets = trainingSetRepository.findByExerciseIdOrderBySetNumber(trainingExercise.getId());
-            boolean mobility = !exerciseResult.sets().isEmpty()
-                    && exerciseResult.sets().stream().allMatch(set -> "MOBILITY".equals(set.loadMode()));
-
-            if (mobility) {
-                if (exerciseResult.sets().size() > trainingSets.size()) {
-                    throw new IllegalArgumentException("Too many mobility results for exercise "
-                            + trainingExercise.getExerciseOrder());
-                }
-                for (var trainingSet : trainingSets) {
-                    trainingSet.setWeightKg(null);
-                    trainingSet.setActualReps(null);
-                    trainingSet.setLoadMode("MOBILITY");
-                }
-                continue;
+        for (var exerciseResult : result.exercises()) {
+            if (exerciseResult.exerciseName() == null || exerciseResult.exerciseName().isBlank()) {
+                throw new IllegalArgumentException("Workout exercise name must not be blank");
             }
 
-            if (trainingSets.size() != exerciseResult.sets().size()) {
-                throw new IllegalArgumentException("Set count mismatch for exercise "
-                        + trainingExercise.getExerciseOrder() + ": expected "
-                        + trainingSets.size() + ", received " + exerciseResult.sets().size());
-            }
+            var trainingExercise = trainingExerciseRepository.save(TrainingExercise.builder()
+                    .session(session)
+                    .exerciseOrder(exerciseResult.exerciseOrder())
+                    .exerciseName(exerciseResult.exerciseName())
+                    .notes(exerciseResult.notes())
+                    .build());
 
-            for (int i = 0; i < exerciseResult.sets().size(); i++) {
-                var trainingSet = trainingSets.get(i);
-                var setResult = exerciseResult.sets().get(i);
-                trainingSet.setWeightKg(setResult.weightKg());
-                trainingSet.setActualReps(setResult.actualReps());
-                trainingSet.setLoadMode(setResult.loadMode());
+            int setNumber = 1;
+            for (var setResult : exerciseResult.sets()) {
+                trainingSetRepository.save(TrainingSet.builder()
+                        .exercise(trainingExercise)
+                        .setNumber(setNumber++)
+                        .weightKg(setResult.weightKg())
+                        .actualReps(setResult.actualReps())
+                        .loadMode(setResult.loadMode())
+                        .build());
             }
         }
 
