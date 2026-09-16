@@ -218,7 +218,8 @@ class FitnessDataServiceTest {
         assertEquals(12, sets.get(0).getActualReps());
         assertEquals(1, sets.get(0).getSetNumber());
         assertEquals(4, sets.get(3).getSetNumber());
-        assertEquals(2, sets.get(4).getSetNumber());
+        assertEquals(1, sets.get(4).getSetNumber());
+        assertEquals(2, sets.get(5).getSetNumber());
     }
 
     @Test
