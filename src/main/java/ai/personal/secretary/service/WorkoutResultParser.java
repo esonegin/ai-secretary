@@ -14,21 +14,28 @@ public class WorkoutResultParser {
     private static final Pattern DATE_HEADER_PATTERN = Pattern.compile(
             "^\\s*\\d{2}\\.\\d{2}\\.\\d{4}\\b.*$");
 
+    private static final Pattern BODY_WEIGHT_PATTERN = Pattern.compile(
+            "^\\s*(?:собственный\\s+вес|вес\\s+тела|bodyweight)\\s*[:=-]?\\s*(\\d+(?:[.,]\\d+)?)\\s*кг?\\s*$",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+
     private static final Pattern WEIGHT_AND_REPS_PATTERN = Pattern.compile(
             "(\\d+(?:[.,]\\d+)?)\\s*кг(?:\\s+([^×xх*]+?))?\\s*[×xх*]\\s*(\\d+)(?:\\s*[×xх*]\\s*(\\d+))?");
-
-    private static final Pattern BODYWEIGHT_AND_REPS_PATTERN = Pattern.compile(
-            "(?:собственный\\s+вес|вес\\s+тела|bodyweight)\\s*[×xх*]\\s*(\\d+)(?:\\s*[×xх*]\\s*(\\d+))?",
-            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
     private static final Pattern COMMENT_PATTERN = Pattern.compile("^(.+?)\\s*\\(([^()]*)\\)\\s*$");
 
     public WorkoutResult parse(String text) {
         var exercises = new ArrayList<ExerciseResult>();
+        BigDecimal bodyWeightKg = null;
         ExerciseResultBuilder current = null;
 
         for (String line : text.split("\\R")) {
             if (DATE_HEADER_PATTERN.matcher(line).matches()) {
+                continue;
+            }
+
+            Matcher bodyWeightMatcher = BODY_WEIGHT_PATTERN.matcher(line);
+            if (bodyWeightMatcher.matches()) {
+                bodyWeightKg = new BigDecimal(bodyWeightMatcher.group(1).replace(',', '.'));
                 continue;
             }
 
@@ -45,7 +52,6 @@ public class WorkoutResultParser {
                     current.sets.add(new SetResult(null, null, "MOBILITY"));
                 } else {
                     current.sets.addAll(parseWeightedSets(payload));
-                    current.sets.addAll(parseBodyweightSets(payload));
                 }
                 continue;
             }
@@ -81,16 +87,6 @@ public class WorkoutResultParser {
                 continue;
             }
 
-            Matcher bodyweightMatcher = BODYWEIGHT_AND_REPS_PATTERN.matcher(exerciseText);
-            if (bodyweightMatcher.find()) {
-                String name = exerciseText.substring(0, bodyweightMatcher.start())
-                        .replaceFirst("\\s*[—–-:]\\s*$", "")
-                        .trim();
-                current = new ExerciseResultBuilder(order, name, notes);
-                current.sets.addAll(parseBodyweightSets(exerciseText.substring(bodyweightMatcher.start())));
-                continue;
-            }
-
             if (isMobility(exerciseText)) {
                 current = new ExerciseResultBuilder(order, exerciseText, notes);
                 current.sets.add(new SetResult(null, null, "MOBILITY"));
@@ -104,7 +100,7 @@ public class WorkoutResultParser {
             exercises.add(current.toResult());
         }
 
-        return new WorkoutResult(exercises);
+        return new WorkoutResult(exercises, bodyWeightKg);
     }
 
     private boolean isIndentedSetLine(String line) {
@@ -123,11 +119,7 @@ public class WorkoutResultParser {
         if (isMobility(setsText)) {
             return List.of(new SetResult(null, null, "MOBILITY"));
         }
-
-        var result = new ArrayList<SetResult>();
-        result.addAll(parseWeightedSets(setsText));
-        result.addAll(parseBodyweightSets(setsText));
-        return result;
+        return parseWeightedSets(setsText);
     }
 
     private List<SetResult> parseWeightedSets(String setsText) {
@@ -142,22 +134,6 @@ public class WorkoutResultParser {
 
             for (int i = 0; i < setCount; i++) {
                 result.add(new SetResult(weight, reps, loadMode));
-            }
-        }
-
-        return result;
-    }
-
-    private List<SetResult> parseBodyweightSets(String setsText) {
-        var result = new ArrayList<SetResult>();
-        Matcher matcher = BODYWEIGHT_AND_REPS_PATTERN.matcher(setsText);
-
-        while (matcher.find()) {
-            int reps = Integer.parseInt(matcher.group(1));
-            int setCount = matcher.group(2) == null ? 1 : Integer.parseInt(matcher.group(2));
-
-            for (int i = 0; i < setCount; i++) {
-                result.add(new SetResult(null, reps, "BODYWEIGHT"));
             }
         }
 
@@ -196,7 +172,7 @@ public class WorkoutResultParser {
         }
     }
 
-    public record WorkoutResult(List<ExerciseResult> exercises) {}
+    public record WorkoutResult(List<ExerciseResult> exercises, BigDecimal bodyWeightKg) {}
 
     public record ExerciseResult(
             int exerciseOrder,
