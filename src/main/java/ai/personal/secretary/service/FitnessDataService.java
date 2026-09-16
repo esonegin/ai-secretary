@@ -42,8 +42,15 @@ public class FitnessDataService {
     }
 
     public List<TrainingSession> getPreviousWorkouts(Long userId, String dayType, LocalDate workoutDate) {
-        return trainingSessionRepository.findTop3ByUserIdAndDayTypeAndWorkoutDateBeforeOrderByWorkoutDateDesc(
+        var exact = trainingSessionRepository.findTop3ByUserIdAndDayTypeAndWorkoutDateBeforeOrderByWorkoutDateDesc(
                 userId, dayType, workoutDate);
+        if (!exact.isEmpty()) return exact;
+
+        String normalized = normalizeProgramDayType(dayType);
+        if (normalized.equals(dayType)) return exact;
+
+        return trainingSessionRepository.findTop3ByUserIdAndDayTypeAndWorkoutDateBeforeOrderByWorkoutDateDesc(
+                userId, normalized, workoutDate);
     }
 
     public Optional<FitnessGoal> getActiveGoal(Long userId) {
