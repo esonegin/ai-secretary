@@ -17,6 +17,10 @@ public class WorkoutResultParser {
     private static final Pattern WEIGHT_AND_REPS_PATTERN = Pattern.compile(
             "(\\d+(?:[.,]\\d+)?)\\s*кг(?:\\s+([^×xх*]+?))?\\s*[×xх*]\\s*(\\d+)(?:\\s*[×xх*]\\s*(\\d+))?");
 
+    private static final Pattern BODYWEIGHT_AND_REPS_PATTERN = Pattern.compile(
+            "(?:собственный\\s+вес|вес\\s+тела|bodyweight)\\s*[×xх*]\\s*(\\d+)(?:\\s*[×xх*]\\s*(\\d+))?",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+
     private static final Pattern COMMENT_PATTERN = Pattern.compile("^(.+?)\\s*\\(([^()]*)\\)\\s*$");
 
     public WorkoutResult parse(String text) {
@@ -41,6 +45,7 @@ public class WorkoutResultParser {
                     current.sets.add(new SetResult(null, null, "MOBILITY"));
                 } else {
                     current.sets.addAll(parseWeightedSets(payload));
+                    current.sets.addAll(parseBodyweightSets(payload));
                 }
                 continue;
             }
@@ -76,6 +81,16 @@ public class WorkoutResultParser {
                 continue;
             }
 
+            Matcher bodyweightMatcher = BODYWEIGHT_AND_REPS_PATTERN.matcher(exerciseText);
+            if (bodyweightMatcher.find()) {
+                String name = exerciseText.substring(0, bodyweightMatcher.start())
+                        .replaceFirst("\\s*[—–-:]\\s*$", "")
+                        .trim();
+                current = new ExerciseResultBuilder(order, name, notes);
+                current.sets.addAll(parseBodyweightSets(exerciseText.substring(bodyweightMatcher.start())));
+                continue;
+            }
+
             if (isMobility(exerciseText)) {
                 current = new ExerciseResultBuilder(order, exerciseText, notes);
                 current.sets.add(new SetResult(null, null, "MOBILITY"));
@@ -108,7 +123,11 @@ public class WorkoutResultParser {
         if (isMobility(setsText)) {
             return List.of(new SetResult(null, null, "MOBILITY"));
         }
-        return parseWeightedSets(setsText);
+
+        var result = new ArrayList<SetResult>();
+        result.addAll(parseWeightedSets(setsText));
+        result.addAll(parseBodyweightSets(setsText));
+        return result;
     }
 
     private List<SetResult> parseWeightedSets(String setsText) {
@@ -123,6 +142,22 @@ public class WorkoutResultParser {
 
             for (int i = 0; i < setCount; i++) {
                 result.add(new SetResult(weight, reps, loadMode));
+            }
+        }
+
+        return result;
+    }
+
+    private List<SetResult> parseBodyweightSets(String setsText) {
+        var result = new ArrayList<SetResult>();
+        Matcher matcher = BODYWEIGHT_AND_REPS_PATTERN.matcher(setsText);
+
+        while (matcher.find()) {
+            int reps = Integer.parseInt(matcher.group(1));
+            int setCount = matcher.group(2) == null ? 1 : Integer.parseInt(matcher.group(2));
+
+            for (int i = 0; i < setCount; i++) {
+                result.add(new SetResult(null, reps, "BODYWEIGHT"));
             }
         }
 
