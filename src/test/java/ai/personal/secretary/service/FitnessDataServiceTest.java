@@ -85,7 +85,7 @@ class FitnessDataServiceTest {
     void getActiveProgramDelegatesToActiveProgramQuery() {
         Long userId = 1L;
         TrainingProgram program = new TrainingProgram();
-        when(trainingProgramRepository.findFirstByUserIdAndStatusOrderByValidFromDescCreatedAtDesc(userId))
+        when(trainingProgramRepository.findFirstByUserIdAndStatusOrderByValidFromDescCreatedAtDesc(userId, "ACTIVE"))
                 .thenReturn(Optional.of(program));
 
         assertSame(program, fitnessDataService.getActiveProgram(userId).orElseThrow());
@@ -107,7 +107,7 @@ class FitnessDataServiceTest {
         TrainingProgramDay day = TrainingProgramDay.builder().id(20L).build();
         var exercise = TrainingProgramExercise.builder().id(30L).build();
 
-        when(trainingProgramRepository.findFirstByUserIdAndStatusOrderByValidFromDescCreatedAtDesc(1L))
+        when(trainingProgramRepository.findFirstByUserIdAndStatusOrderByValidFromDescCreatedAtDesc(1L, "ACTIVE"))
                 .thenReturn(Optional.of(program));
         when(trainingProgramDayRepository.findByProgramIdAndDayType(10L, "1"))
                 .thenReturn(Optional.of(day));
@@ -189,7 +189,7 @@ class FitnessDataServiceTest {
                         new WorkoutResultParser.SetResult(new BigDecimal("82.5"), 10, "TOTAL"),
                         new WorkoutResultParser.SetResult(new BigDecimal("82.5"), 9, "TOTAL")
                 ))
-        ), null);
+        ), new BigDecimal("83.0"));
 
         when(trainingExerciseRepository.save(any(TrainingExercise.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
