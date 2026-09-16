@@ -257,4 +257,34 @@ class FitnessDataServiceTest {
         assertEquals("BODYWEIGHT", sets.get(2).getLoadMode());
         assertEquals(10, sets.get(2).getActualReps());
     }
+
+    @Test
+    void recordWorkoutResultReplacesExistingFactsInsteadOfDuplicatingThem() {
+        var date = LocalDate.of(2026, 9, 16);
+        var session = TrainingSession.builder().id(300L).workoutDate(date).dayType("2").build();
+        var existingExercise = TrainingExercise.builder().id(301L).session(session).exerciseOrder(1)
+                .exerciseName("Старое упражнение").build();
+        when(trainingSessionRepository.findByUserIdAndWorkoutDateAndDayType(1L, date, "2"))
+                .thenReturn(Optional.of(session));
+        when(trainingExerciseRepository.findBySessionIdOrderByExerciseOrder(300L))
+                .thenReturn(List.of(existingExercise));
+        when(trainingExerciseRepository.save(any(TrainingExercise.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(trainingSetRepository.save(any(TrainingSet.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(trainingSessionRepository.save(session)).thenReturn(session);
+
+        var result = new WorkoutResultParser.WorkoutResult(List.of(
+                new WorkoutResultParser.ExerciseResult(1, "Новое упражнение", null, List.of(
+                        new WorkoutResultParser.SetResult(new BigDecimal("50"), 8, "TOTAL")
+                ))
+        ));
+
+        fitnessDataService.recordWorkoutResult(1L, date, "2", null, result);
+
+        verify(trainingSetRepository).deleteByExerciseId(301L);
+        verify(trainingExerciseRepository).deleteAll(List.of(existingExercise));
+        verify(trainingExerciseRepository).save(any(TrainingExercise.class));
+        verify(trainingSetRepository).save(any(TrainingSet.class));
+    }
 }
