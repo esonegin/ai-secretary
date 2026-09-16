@@ -75,7 +75,7 @@ class FitnessDataServiceTest {
     void getActiveGoalDelegatesToActiveGoalQuery() {
         Long userId = 1L;
         FitnessGoal goal = new FitnessGoal();
-        when(fitnessGoalRepository.findFirstByUserIdAndStatusOrderByPriorityDescCreatedAtDesc(userId))
+        when(fitnessGoalRepository.findFirstByUserIdAndStatusOrderByPriorityDescCreatedAtDesc(userId, "ACTIVE"))
                 .thenReturn(Optional.of(goal));
 
         assertSame(goal, fitnessDataService.getActiveGoal(userId).orElseThrow());
