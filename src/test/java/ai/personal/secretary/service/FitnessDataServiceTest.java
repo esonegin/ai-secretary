@@ -189,7 +189,7 @@ class FitnessDataServiceTest {
                         new WorkoutResultParser.SetResult(new BigDecimal("82.5"), 10, "TOTAL"),
                         new WorkoutResultParser.SetResult(new BigDecimal("82.5"), 9, "TOTAL")
                 ))
-        , null));
+        ), null);
 
         when(trainingExerciseRepository.save(any(TrainingExercise.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
